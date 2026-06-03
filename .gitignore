@@ -38,9 +38,9 @@ frontend/tsconfig*.tsbuildinfo
 # uv 自动生成（可按需提交）
 .python-version
 
-# 误生成的目录和文件
+# 误生成的目录和文件（只忽略根目录的 main.py，不影响 backend/main.py）
 cookie=*/
-main.py
+/main.py
 
 # Vite 默认模板文件（已不使用）
 frontend/src/App.css
