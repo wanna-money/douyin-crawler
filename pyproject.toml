@@ -12,6 +12,7 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "aiofiles>=24.1.0",
     "python-multipart>=0.0.9",
+    "playwright>=1.60.0",
 ]
 
 [project.scripts]

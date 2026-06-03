@@ -1,0 +1,127 @@
+import { useEffect, useState } from 'react'
+import { type SearchConfig, configsApi } from '../api/client'
+import ConfigForm from '../components/ConfigForm'
+import { toast } from '../components/Toast'
+
+export default function Configs() {
+  const [configs, setConfigs] = useState<SearchConfig[]>([])
+  const [showForm, setShowForm] = useState(false)
+  const [editing, setEditing] = useState<SearchConfig | undefined>()
+  const [triggering, setTriggering] = useState<number | null>(null)
+
+  const load = () => configsApi.list().then(setConfigs)
+  useEffect(() => { load() }, [])
+
+  const handleTrigger = async (id: number) => {
+    setTriggering(id)
+    try { await configsApi.trigger(id); toast.success('任务已启动') }
+    finally { setTriggering(null) }
+  }
+
+  const handleDelete = async (id: number) => {
+    if (!confirm('确认删除？')) return
+    await configsApi.delete(id)
+    toast.success('配置已删除')
+    load()
+  }
+
+  const closeForm = () => { setShowForm(false); setEditing(undefined) }
+  const isOpen = showForm || !!editing
+
+  return (
+    <div className="p-8">
+      {/* 页头 */}
+      <div className="flex items-center justify-between mb-1">
+        <h2 className="text-2xl font-extrabold" style={{ color: 'var(--text-primary)' }}>搜索配置</h2>
+        <button className="btn-primary" onClick={() => setShowForm(true)}>＋ 新建配置</button>
+      </div>
+      <p className="text-sm text-slate-400 mb-6">管理关键词 / 话题采集任务，支持定时自动执行</p>
+
+      {/* 卡片列表 */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        {configs.length === 0 && (
+          <div className="col-span-2 flex flex-col items-center justify-center py-20 gap-4">
+            <div className="text-6xl opacity-40">🔍</div>
+            <div className="text-center">
+              <p className="text-slate-600 font-semibold text-base">还没有搜索配置</p>
+              <p className="text-slate-400 text-sm mt-1">创建第一个配置，开始自动采集抖音内容</p>
+            </div>
+          </div>
+        )}
+        {configs.map(c => (
+          <div key={c.id} className="glass-card p-5">
+            <div className="flex items-start justify-between mb-3">
+              <div>
+                <div className="font-bold text-[15px]" style={{ color: 'var(--text-primary)' }}>{c.name}</div>
+                <div className="flex gap-1.5 mt-1.5 flex-wrap">
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${c.enabled ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-400'}`}>
+                    {c.enabled ? '● 已启用' : '○ 已禁用'}
+                  </span>
+                  <span className="text-xs px-2 py-0.5 rounded-full font-semibold bg-purple-100 text-purple-700">
+                    {c.search_type === 'search' ? '关键词' : '# 话题'}
+                  </span>
+                  {c.llm_filter_enabled && (
+                    <span className="text-xs px-2 py-0.5 rounded-full font-semibold bg-blue-100 text-blue-600">🤖 LLM过滤</span>
+                  )}
+                </div>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2 mb-3">
+              {[
+                `🔍 ${c.query}`,
+                `📅 ${c.publish_time === 0 ? '不限' : c.publish_time === 1 ? '天内' : c.publish_time === 7 ? '周内' : '半年内'}`,
+                `🎯 ${c.limit} 条`,
+              ].map(label => (
+                <span key={label} className="text-xs text-slate-500 bg-white/60 px-2.5 py-1 rounded-lg border border-purple-50">{label}</span>
+              ))}
+            </div>
+            <div className="text-xs text-indigo-500 bg-indigo-50/60 rounded-lg px-3 py-1.5 font-mono mb-3">{c.cron}</div>
+            <div className="flex gap-2 pt-3 border-t border-purple-50">
+              <button onClick={() => handleTrigger(c.id)} disabled={triggering === c.id} className="btn-primary" style={{ fontSize: '12px', padding: '6px 14px' }}>
+                {triggering === c.id ? '运行中...' : '▶ 立即执行'}
+              </button>
+              <button onClick={() => setEditing(c)} className="text-xs px-3 py-1.5 rounded-lg bg-white/60 text-slate-500 border border-purple-50 hover:bg-white/80 transition-colors">编辑</button>
+              <button onClick={() => handleDelete(c.id)} className="text-xs px-3 py-1.5 rounded-lg bg-red-50/60 text-red-400 border border-red-100 hover:bg-red-50 transition-colors">删除</button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Modal */}
+      {isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          {/* 遮罩 */}
+          <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={closeForm} />
+          {/* 弹窗 */}
+          <div
+            className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl shadow-2xl"
+            style={{
+              background: 'linear-gradient(160deg,rgba(255,255,255,0.98) 0%,rgba(248,246,255,0.98) 100%)',
+              backdropFilter: 'blur(20px)',
+            }}
+          >
+            <div className="sticky top-0 z-10 flex items-center justify-between px-8 py-5 border-b border-purple-50 rounded-t-2xl"
+              style={{ background: 'rgba(255,255,255,0.95)', backdropFilter: 'blur(10px)' }}>
+              <div>
+                <h3 className="text-lg font-extrabold" style={{ color: 'var(--text-primary)' }}>
+                  {editing ? '编辑配置' : '新建配置'}
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  {editing ? `正在编辑「${editing.name}」` : '填写基本信息和采集规则'}
+                </p>
+              </div>
+              <button onClick={closeForm} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-purple-50 text-slate-400 hover:text-indigo-500 transition-colors text-lg">✕</button>
+            </div>
+            <div className="px-8 py-6">
+              <ConfigForm
+                initial={editing}
+                onSaved={() => { closeForm(); load() }}
+                onCancel={closeForm}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
