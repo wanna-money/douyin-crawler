@@ -28,9 +28,12 @@ downloads/
 .DS_Store
 **/.DS_Store
 
-# 前端构建产物
+# 前端构建产物和缓存
 frontend/dist/
 frontend/node_modules/
+frontend/.vite/
+frontend/tsconfig*.tsbuildinfo
+*.tsbuildinfo
 
 # uv 自动生成（可按需提交）
 .python-version
