@@ -16,6 +16,17 @@ class Downloader:
             if not os.path.exists(dest):
                 await self.client.download_file(item["video_url"], dest)
             paths.append(dest)
+            # 同时下载封面图，供飞书推送使用
+            cover_url = item.get("cover_url")
+            if cover_url:
+                cover_dest = os.path.join(self.base_dir, f"{aweme_id}_cover.jpg")
+                if not os.path.exists(cover_dest):
+                    try:
+                        await self.client.download_file(cover_url, cover_dest)
+                    except Exception:
+                        pass
+                if os.path.exists(cover_dest):
+                    item["cover_path"] = cover_dest
         elif item["media_type"] == "image":
             for idx, url in enumerate(item.get("image_urls", [])):
                 dest = os.path.join(self.base_dir, f"{aweme_id}_{idx}.jpg")
