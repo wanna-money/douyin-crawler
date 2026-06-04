@@ -81,58 +81,61 @@ async def upload_image(token: str, file_path: str) -> Optional[str]:
         return None
 
 
-def _build_post(items: list[dict], config_name: str, image_keys: dict[str, str]) -> dict:
-    """
-    构建飞书 post 富文本消息。
-    post 格式是飞书最稳定的富文本格式，支持加粗/图片，无版本兼容问题。
-    content 结构: {"zh_cn": {"title": "...", "content": [[line], [line], ...]}}
-    每行是一个列表，列表内是行内元素（text / img）。
-    """
+def _build_single_post(item: dict, config_name: str, image_key: Optional[str]) -> dict:
+    """为单条采集内容构建一条 post 富文本消息。"""
+    desc = item.get("desc", "")[:200]
+    author = item.get("author", "")
+    media_type = item.get("media_type", "")
+    type_label = "📹 视频" if media_type == "video" else "🖼 图文"
+
     lines = []
 
-    # 标题行
-    lines.append([{"tag": "text", "text": f"共 {len(items)} 条新内容", "style": ["bold"]}])
+    # 第一行：类型 + 作者
+    lines.append([
+        {"tag": "text", "text": f"{type_label}  ", "style": ["bold"]},
+        {"tag": "text", "text": author, "style": ["bold"]},
+    ])
 
-    for item in items[:20]:
-        desc = item.get("desc", "")[:120]
-        author = item.get("author", "")
-        media_type = item.get("media_type", "")
-        file_paths = item.get("file_paths", [])
-        type_label = "视频" if media_type == "video" else "图文"
+    # 描述
+    if desc:
+        lines.append([{"tag": "text", "text": desc}])
 
-        # 作者 + 类型行
-        line: list = [
-            {"tag": "text", "text": f"[{type_label}] ", "style": ["bold"]},
-            {"tag": "text", "text": author, "style": ["bold"]},
-        ]
-        lines.append(line)
-
-        # 描述行
-        if desc:
-            lines.append([{"tag": "text", "text": desc}])
-
-        # 图片（仅图集第一张）
-        for path in file_paths:
-            if path in image_keys:
-                lines.append([{"tag": "img", "image_key": image_keys[path]}])
-                break
-
-        # 视频文件名
-        if media_type == "video" and file_paths:
-            lines.append([{"tag": "text", "text": f"  ▶ {os.path.basename(file_paths[0])}", "style": ["italic"]}])
-
-        # 空行分隔
-        lines.append([{"tag": "text", "text": ""}])
-
-    if len(items) > 20:
-        lines.append([{"tag": "text", "text": f"…还有 {len(items) - 20} 条，请查看下载目录", "style": ["italic"]}])
+    # 图集：展示已上传的图片
+    if image_key:
+        lines.append([{"tag": "img", "image_key": image_key}])
 
     return {
         "zh_cn": {
-            "title": f"📡 抖音采集 · {config_name}",
+            "title": f"抖音采集 · {config_name}",
             "content": lines,
         }
     }
+
+
+async def upload_video(token: str, file_path: str) -> Optional[str]:
+    """上传视频文件到飞书，返回 file_key；失败返回 None"""
+    if not os.path.exists(file_path):
+        return None
+    try:
+        file_size = os.path.getsize(file_path)
+        filename = os.path.basename(file_path)
+        async with _http_client(timeout=120) as client:
+            with open(file_path, "rb") as f:
+                resp = await client.post(
+                    f"{_FEISHU_API}/im/v1/files",
+                    headers={"Authorization": f"Bearer {token}"},
+                    data={"file_type": "mp4", "file_name": filename, "file_size": str(file_size)},
+                    files={"file": (filename, f, "video/mp4")},
+                )
+        resp.raise_for_status()
+        data = resp.json()
+        if data.get("code", -1) != 0:
+            logger.warning("上传视频失败: %s", data.get("msg"))
+            return None
+        return data["data"]["file_key"]
+    except Exception as e:
+        logger.warning("上传视频异常: %s", e)
+        return None
 
 
 async def _send(token: str, chat_id: str, msg_type: str, content: str) -> bool:
@@ -201,27 +204,45 @@ class FeishuBotNotifier:
     async def send_media_items(self, items: list[dict], config_name: str = "") -> int:
         if not items:
             return 0
-        try:
-            token = await get_tenant_token(self.app_id, self.app_secret)
+        token = await get_tenant_token(self.app_id, self.app_secret)
+        sent = 0
+        for item in items:
+            try:
+                media_type = item.get("media_type", "")
+                file_paths = item.get("file_paths", [])
 
-            # 上传图集封面图
-            image_keys: dict[str, str] = {}
-            for item in items:
-                if item.get("media_type") != "image":
-                    continue
-                for path in item.get("file_paths", []):
-                    if path.endswith((".jpg", ".jpeg", ".png", ".webp")) and path not in image_keys:
-                        key = await upload_image(token, path)
-                        if key:
-                            image_keys[path] = key
-                        await asyncio.sleep(0.2)
+                if media_type == "video" and file_paths:
+                    # 先发文字描述
+                    post = _build_single_post(item, config_name, None)
+                    await _send(token, self.chat_id, "post", json.dumps(post))
+                    # 再上传并发送视频（media 消息在 App 内可直接播放）
+                    for path in file_paths:
+                        if path.endswith(".mp4") and os.path.exists(path):
+                            file_key = await upload_video(token, path)
+                            if file_key:
+                                await _send(
+                                    token, self.chat_id, "media",
+                                    json.dumps({"file_key": file_key}),
+                                )
+                            break
+                else:
+                    # 图集：上传第一张图片作为预览
+                    image_key: Optional[str] = None
+                    for path in file_paths:
+                        if path.endswith((".jpg", ".jpeg", ".png", ".webp")) and os.path.exists(path):
+                            image_key = await upload_image(token, path)
+                            if image_key:
+                                break
+                            await asyncio.sleep(0.2)
+                    post = _build_single_post(item, config_name, image_key)
+                    await _send(token, self.chat_id, "post", json.dumps(post))
 
-            post = _build_post(items, config_name, image_keys)
-            await _send(token, self.chat_id, "post", json.dumps(post))
-            return len(items)
-        except Exception as e:
-            logger.error("飞书机器人发送失败: %s", e)
-            return 0
+                sent += 1
+                await asyncio.sleep(0.5)  # 避免发送过快被限流
+            except Exception as e:
+                logger.error("发送单条内容失败 aweme_id=%s: %s", item.get("aweme_id"), e)
+
+        return sent
 
 
 # 向后兼容
