@@ -117,7 +117,7 @@ export default function ConfigForm({ initial, onSaved, onCancel }: Props) {
       <div>
         <span className={labelCls}>执行时间</span>
         <div className="rounded-2xl p-4 border border-purple-100 bg-white/50">
-          <SchedulePicker value={form.cron} onChange={cron => set('cron', cron)} />
+          <SchedulePicker key={initial?.id ?? 'new'} value={form.cron} onChange={cron => set('cron', cron)} />
         </div>
       </div>
       <label className="block">

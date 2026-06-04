@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 
 type Mode = 'daily' | 'weekday' | 'weekly' | 'interval' | 'advanced'
 
@@ -86,8 +86,11 @@ export default function SchedulePicker({ value, onChange }: Props) {
   // 新增时间的临时选择值
   const [addHour, setAddHour] = useState(12)
   const [addMinute, setAddMinute] = useState(0)
+  // 跳过初始渲染时的 onChange 触发，避免用解析值覆盖父组件传入的 value
+  const mounted = useRef(false)
 
   useEffect(() => {
+    if (!mounted.current) { mounted.current = true; return }
     onChange(toCron(mode, times, days, interval, raw))
   }, [mode, times, days, interval, raw]) // eslint-disable-line react-hooks/exhaustive-deps
 

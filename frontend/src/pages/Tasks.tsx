@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState } from 'react'
 import {
   type TaskRecord, type SearchConfig, type LogEntry,
   tasksApi, configsApi, logsApi,
@@ -10,44 +10,6 @@ const STATUS_MAP: Record<string, { label: string; cls: string; dot: string }> = 
   running: { label: '运行中', cls: 'bg-yellow-100 text-yellow-700',   dot: '◎' },
   done:    { label: '完成',   cls: 'bg-emerald-100 text-emerald-700', dot: '●' },
   failed:  { label: '失败',   cls: 'bg-red-100 text-red-600',         dot: '✕' },
-}
-
-function NoteCell({ task, onSaved }: { task: TaskRecord; onSaved: () => void }) {
-  const [editing, setEditing] = useState(false)
-  const [value, setValue] = useState(task.note || '')
-  const inputRef = useRef<HTMLInputElement>(null)
-
-  const save = async () => {
-    if (value === task.note) { setEditing(false); return }
-    await tasksApi.updateNote(task.id, value)
-    toast.success('备注已保存')
-    setEditing(false)
-    onSaved()
-  }
-
-  useEffect(() => { if (editing) inputRef.current?.focus() }, [editing])
-
-  if (editing) {
-    return (
-      <input
-        ref={inputRef}
-        value={value}
-        onChange={e => setValue(e.target.value)}
-        onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }}
-        onBlur={save}
-        className="text-xs border border-purple-200 rounded px-1.5 py-0.5 w-28 focus:outline-none focus:border-indigo-400"
-      />
-    )
-  }
-  return (
-    <button
-      onClick={() => setEditing(true)}
-      className="text-xs text-slate-400 hover:text-indigo-500 transition-colors text-left truncate max-w-[110px]"
-      title={value || '点击添加备注'}
-    >
-      {value || <span className="opacity-40">+ 备注</span>}
-    </button>
-  )
 }
 
 function LogTable({ logs, loading }: { logs: LogEntry[]; loading: boolean }) {
@@ -87,17 +49,17 @@ function LogTable({ logs, loading }: { logs: LogEntry[]; loading: boolean }) {
         </select>
       </div>
       {/* 日志行 */}
-      <div className="divide-y divide-purple-50">
+      <div className="divide-y divide-purple-50 overflow-hidden">
         {filtered.length === 0 ? (
           <div className="py-6 text-center text-xs text-slate-400">无匹配记录</div>
         ) : filtered.map((e, i) => (
-          <div key={i} className="flex items-start gap-3 px-4 py-2.5 text-xs hover:bg-white/40 transition-colors">
+          <div key={i} className="flex items-center gap-3 px-4 py-2.5 text-xs hover:bg-white/40 transition-colors min-w-0">
             <span className="text-slate-300 font-mono shrink-0 w-[72px]">{new Date(e.ts).toLocaleTimeString('zh-CN')}</span>
             <span className={`shrink-0 px-1.5 py-0.5 rounded text-[11px] font-semibold ${e.media_type === 'video' ? 'bg-blue-50 text-blue-600' : 'bg-pink-50 text-pink-500'}`}>
               {e.media_type === 'video' ? '视频' : '图文'}
             </span>
             <span className="text-indigo-500 shrink-0 font-medium w-20 truncate">{e.author}</span>
-            <span className="text-slate-600 flex-1 truncate" title={e.desc}>{e.desc || '（无描述）'}</span>
+            <span className="text-slate-600 min-w-0 flex-1 truncate" title={e.desc}>{e.desc || '（无描述）'}</span>
             <div className="flex items-center gap-2 shrink-0">
               {e.downloaded
                 ? <span className="text-emerald-500 font-semibold">✓ 已下载</span>
@@ -105,7 +67,7 @@ function LogTable({ logs, loading }: { logs: LogEntry[]; loading: boolean }) {
               {e.sent && <span className="text-indigo-400">· 已推送</span>}
             </div>
             {e.error && (
-              <span className="text-red-400 truncate max-w-[140px]" title={e.error}>{e.error}</span>
+              <span className="text-red-400 truncate max-w-[140px] shrink-0" title={e.error}>{e.error}</span>
             )}
           </div>
         ))}
@@ -124,24 +86,22 @@ function DetailPanel({ task, onClose }: { task: TaskRecord; onClose: () => void 
   }, [task.id])
 
   return (
-    <tr>
-      <td colSpan={9} className="px-5 pb-4 pt-0">
-        <div className="rounded-xl border border-purple-100 overflow-hidden" style={{ background: 'rgba(249,248,255,0.9)' }}>
-          <div className="flex items-center justify-between px-4 py-2.5 border-b border-purple-50" style={{ background: 'rgba(99,102,241,0.04)' }}>
-            <div className="flex items-center gap-3">
-              <span className="text-xs font-bold text-indigo-500">采集明细</span>
-              {task.note && (
-                <span className="text-xs text-amber-600 bg-amber-50 px-2 py-0.5 rounded">⚠ {task.note}</span>
-              )}
-            </div>
-            <button onClick={onClose} className="text-xs text-slate-400 hover:text-slate-600 px-2 py-0.5 rounded hover:bg-white/60 transition-colors">
-              收起 ▲
-            </button>
+    <div className="px-4 py-3" style={{ borderBottom: '1px solid rgba(99,102,241,0.05)' }}>
+      <div className="rounded-xl border border-purple-100 overflow-hidden" style={{ background: 'rgba(249,248,255,0.9)' }}>
+        <div className="flex items-center justify-between px-4 py-2.5 border-b border-purple-50" style={{ background: 'rgba(99,102,241,0.04)' }}>
+          <div className="flex items-center gap-3">
+            <span className="text-xs font-bold text-indigo-500">采集明细</span>
+            {task.note && (
+              <span className="text-xs text-amber-600 bg-amber-50 px-2 py-0.5 rounded">⚠ {task.note}</span>
+            )}
           </div>
-          <LogTable logs={logs} loading={loading} />
+          <button onClick={onClose} className="text-xs text-slate-400 hover:text-slate-600 px-2 py-0.5 rounded hover:bg-white/60 transition-colors">
+            收起 ▲
+          </button>
         </div>
-      </td>
-    </tr>
+        <LogTable logs={logs} loading={loading} />
+      </div>
+    </div>
   )
 }
 
@@ -149,6 +109,7 @@ export default function Tasks() {
   const [tasks, setTasks] = useState<TaskRecord[]>([])
   const [configMap, setConfigMap] = useState<Record<number, string>>({})
   const [clearing, setClearing] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const [filter, setFilter] = useState({
     configId: '',
@@ -163,7 +124,6 @@ export default function Tasks() {
       setTasks(ts)
       setConfigMap(Object.fromEntries(cs.map((c: SearchConfig) => [c.id, c.name])))
     })
-
   useEffect(() => {
     fetchAll()
     const t = setInterval(fetchAll, 5000)
@@ -213,6 +173,15 @@ export default function Tasks() {
         <h2 className="text-2xl font-extrabold" style={{ color: 'var(--text-primary)' }}>任务记录</h2>
         <div className="flex items-center gap-2">
           <span className="text-xs text-slate-400 bg-white/60 px-3 py-1.5 rounded-full border border-purple-50">每 5 秒自动刷新</span>
+          <button
+            onClick={() => { setRefreshing(true); fetchAll().finally(() => setRefreshing(false)) }}
+            disabled={refreshing}
+            className="text-xs px-3 py-1.5 rounded-xl bg-white/60 text-indigo-500 border border-purple-100 hover:bg-indigo-50 transition-colors disabled:opacity-60"
+            title="手动刷新"
+          >
+            <span className={refreshing ? 'inline-block animate-spin' : 'inline-block'}>↻</span>
+            {' '}刷新
+          </button>
           {tasks.length > 0 && (
             <button
               onClick={handleClear}
@@ -299,83 +268,88 @@ export default function Tasks() {
             {filtered.length === 0 ? (
               <div className="py-14 text-center text-slate-400 text-sm">无匹配记录</div>
             ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr style={{ borderBottom: '1px solid rgba(99,102,241,0.08)', background: 'rgba(99,102,241,0.03)' }}>
-                  {['ID', '配置', '状态', '新内容', '下载', '推送', '备注', '时间', '操作'].map(h => (
-                    <th key={h} className="px-4 py-3 text-left text-xs font-bold text-purple-400 uppercase tracking-wide">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map(t => {
-                const s = STATUS_MAP[t.status] ?? { label: t.status, cls: 'bg-gray-100', dot: '·' }
-                const configName = configMap[t.config_id] ?? `#${t.config_id}`
-                const isExpanded = expandedId === t.id
-                return (
-                  <>
-                    <tr
-                      key={t.id}
-                      style={{ borderBottom: isExpanded ? 'none' : '1px solid rgba(99,102,241,0.05)' }}
-                      className={`transition-colors ${isExpanded ? 'bg-indigo-50/30' : 'hover:bg-white/40'}`}
-                    >
-                      <td className="px-4 py-3 text-purple-300 text-xs font-mono">#{t.id}</td>
-                      <td className="px-4 py-3">
-                        <span className="text-xs font-semibold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-lg">{configName}</span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex flex-col gap-0.5">
-                          <span className={`text-xs px-2 py-0.5 rounded-full font-semibold self-start ${s.cls}`}>{s.dot} {s.label}</span>
-                          {t.status === 'failed' && t.error && (
-                            <p className="text-xs text-red-400 mt-0.5 max-w-[180px] break-words leading-relaxed">✕ {t.error}</p>
-                          )}
-                          {t.status === 'done' && t.note && (
-                            <p className="text-xs text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded mt-0.5 max-w-[180px] break-words leading-relaxed">⚠ {t.note}</p>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-slate-600 tabular-nums">{t.total}</td>
-                      <td className="px-4 py-3 tabular-nums">
-                        <span className={t.downloaded < t.total && t.total > 0 ? 'text-red-400' : 'text-slate-600'}>
-                          {t.downloaded}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-slate-600 tabular-nums">{t.sent}</td>
-                      <td className="px-4 py-3">
-                        <NoteCell task={t} onSaved={fetchAll} />
-                      </td>
-                      <td className="px-4 py-3 text-slate-400 text-xs whitespace-nowrap">
-                        {new Date(t.created_at).toLocaleString('zh-CN')}
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            onClick={() => toggleDetail(t.id)}
-                            className={`text-xs px-2 py-1 rounded-lg border transition-colors ${isExpanded
-                              ? 'bg-indigo-100 text-indigo-600 border-indigo-200'
-                              : 'bg-indigo-50 text-indigo-500 border-indigo-100 hover:bg-indigo-100'}`}
-                          >
-                            {isExpanded ? '收起' : '详情'}
-                          </button>
-                          <button
-                            onClick={() => handleDelete(t.id)}
-                            className="text-xs px-2 py-1 rounded-lg bg-red-50 text-red-400 border border-red-100 hover:bg-red-100 transition-colors"
-                          >
-                            删除
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                    {isExpanded && (
-                      <DetailPanel key={`detail-${t.id}`} task={t} onClose={() => setExpandedId(null)} />
-                    )}
-                  </>
-                )
-              })}
-            </tbody>
-          </table>
-          )}
-        </div>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr style={{ borderBottom: '1px solid rgba(99,102,241,0.08)', background: 'rgba(99,102,241,0.03)' }}>
+                    {['ID', '配置', '状态', '新内容', '下载', '推送', '备注', '时间', '操作'].map(h => (
+                      <th key={h} className="px-4 py-3 text-left text-xs font-bold text-purple-400 uppercase tracking-wide">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map(t => {
+                    const s = STATUS_MAP[t.status] ?? { label: t.status, cls: 'bg-gray-100', dot: '·' }
+                    const configName = configMap[t.config_id] ?? `#${t.config_id}`
+                    const isExpanded = expandedId === t.id
+                    return (
+                      <>
+                        <tr
+                          key={t.id}
+                          style={{ borderBottom: isExpanded ? 'none' : '1px solid rgba(99,102,241,0.05)' }}
+                          className={`transition-colors ${isExpanded ? 'bg-indigo-50/30' : 'hover:bg-white/40'}`}
+                        >
+                          <td className="px-4 py-3 text-purple-300 text-xs font-mono">#{t.id}</td>
+                          <td className="px-4 py-3">
+                            <span className="text-xs font-semibold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-lg truncate block">{configName}</span>
+                          </td>
+                          <td className="px-4 py-3">
+                            <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${s.cls}`}>{s.dot} {s.label}</span>
+                          </td>
+                          <td className="px-4 py-3 text-slate-600 tabular-nums whitespace-nowrap">{t.total}</td>
+                          <td className="px-4 py-3 tabular-nums whitespace-nowrap">
+                            <span className={t.downloaded < t.total && t.total > 0 ? 'text-red-400' : 'text-slate-600'}>
+                              {t.downloaded}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3 text-slate-600 tabular-nums whitespace-nowrap">{t.sent}</td>
+                          <td className="px-4 py-3 max-w-xs">
+                            {(t.note || (t.status === 'failed' && t.error)) ? (
+                              <span
+                                className={`text-xs truncate block ${t.status === 'failed' ? 'text-red-400' : 'text-amber-600'}`}
+                                title={t.note || t.error || ''}
+                              >
+                                {t.status === 'failed' ? (t.error || t.note) : t.note}
+                              </span>
+                            ) : (
+                              <span className="text-xs text-slate-300">—</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-slate-400 text-xs whitespace-nowrap">{new Date(t.created_at).toLocaleString('zh-CN')}</td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                onClick={() => toggleDetail(t.id)}
+                                className={`text-xs px-2 py-1 rounded-lg border transition-colors ${isExpanded
+                                  ? 'bg-indigo-100 text-indigo-600 border-indigo-200'
+                                  : 'bg-indigo-50 text-indigo-500 border-indigo-100 hover:bg-indigo-100'}`}
+                              >
+                                {isExpanded ? '收起' : '详情'}
+                              </button>
+                              <button
+                                onClick={() => handleDelete(t.id)}
+                                className="text-xs px-2 py-1 rounded-lg bg-red-50 text-red-400 border border-red-100 hover:bg-red-100 transition-colors"
+                              >
+                                删除
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                        {isExpanded && (
+                          <tr key={`detail-${t.id}`}>
+                            <td colSpan={9} style={{ padding: 0, maxWidth: 0 }}>
+                              <div style={{ width: '100%', overflow: 'hidden' }}>
+                                <DetailPanel task={t} onClose={() => setExpandedId(null)} />
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </>
+                    )
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
         </>
       )}
     </div>

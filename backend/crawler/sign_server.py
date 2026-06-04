@@ -7,14 +7,30 @@ POST /sign  body: {"keyword": "...", "cookie": "..."}
 """
 import asyncio
 import json
+import logging
+import os
 import random
 import sys
 import time
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs, quote
+from pathlib import Path
 
 PORT = 18690
+
+# 日志写到项目 logs/ 目录
+_LOG_DIR = Path(__file__).parent.parent.parent / "logs"
+_LOG_DIR.mkdir(exist_ok=True)
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [sign_server] %(message)s",
+    handlers=[
+        logging.FileHandler(_LOG_DIR / "sign_server.log", encoding="utf-8"),
+        logging.StreamHandler(sys.stdout),
+    ],
+)
+logger = logging.getLogger(__name__)
 
 # 全局持久状态
 _loop: asyncio.AbstractEventLoop | None = None
@@ -30,7 +46,16 @@ async def _init_browser(cookie: str):
     p = await async_playwright().start()
     browser = await p.chromium.launch(
         headless=True,
-        args=["--disable-blink-features=AutomationControlled"],
+        args=[
+            "--disable-blink-features=AutomationControlled",
+            "--no-sandbox",                    # 容器/服务器环境必须
+            "--disable-setuid-sandbox",
+            "--disable-dev-shm-usage",         # /dev/shm 空间不足时防崩溃
+            "--disable-gpu",                   # 无 GPU 环境
+            "--disable-software-rasterizer",
+            "--no-first-run",
+            "--no-zygote",
+        ],
     )
     context = await browser.new_context(
         user_agent=(
@@ -52,12 +77,14 @@ async def _init_browser(cookie: str):
                 pass
 
     page = await context.new_page()
-    await page.goto("https://www.douyin.com/", wait_until="domcontentloaded", timeout=15000)
+    try:
+        await page.goto("https://www.douyin.com/", wait_until="domcontentloaded", timeout=15000)
+    except Exception as e:
+        logger.error("goto douyin.com failed: %s", e)
     await asyncio.sleep(2)
     _page = page
     _page_cookie = cookie
-    sys.stdout.write("Browser initialized\n")
-    sys.stdout.flush()
+    logger.info("Browser initialized")
     # 预热：触发一次搜索让页面 JS 完全就绪
     await _do_sign("美食", cookie)
 
@@ -82,17 +109,28 @@ async def _do_sign(keyword: str, cookie: str) -> dict:
     _page.on("request", on_request)
     try:
         rand = random.randint(10000, 99999)
-        # 用 commit 而不是 networkidle，页面 DOM 加载后马上等签名请求
         await _page.goto(
             f"https://www.douyin.com/search/{quote(keyword)}?type=general&_t={rand}",
             wait_until="commit",
             timeout=15000,
         )
         await asyncio.wait_for(done.wait(), timeout=20)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.error("goto/wait failed: %s", e)
     finally:
         _page.remove_listener("request", on_request)
+
+    # 读取页面最新 Cookie 中的 msToken，回传给调用方用于刷新
+    try:
+        cookies = await _page.context.cookies()
+        ms_token = next(
+            (c['value'] for c in cookies if c['name'] == 'msToken' and c.get('domain', '').endswith('douyin.com')),
+            None
+        )
+        if ms_token:
+            captured["fresh_ms_token"] = ms_token
+    except Exception:
+        pass
 
     return captured
 
@@ -143,6 +181,5 @@ if __name__ == "__main__":
     t.start()
 
     server = HTTPServer(("127.0.0.1", PORT), Handler)
-    sys.stdout.write(f"sign_server ready on {PORT}\n")
-    sys.stdout.flush()
+    logger.info("sign_server ready on %d", PORT)
     server.serve_forever()

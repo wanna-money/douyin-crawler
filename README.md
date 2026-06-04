@@ -30,19 +30,17 @@ cd frontend && npm install && npm run build && cd ..
 
 ### 2. 启动服务
 
-需要同时启动两个进程：
-
 ```bash
-# 终端 1：签名服务（首次启动约 30s 完成浏览器初始化）
-uv run python backend/crawler/sign_server.py
+./start.sh    # 后台启动（已运行则跳过）
+./stop.sh     # 停止服务
 
-# 终端 2：后端服务
+# 或直接前台运行
 uv run python -m backend.main
 ```
 
 访问 **http://localhost:8000**
 
-> **关于签名服务**：抖音搜索 API 需要 `a_bogus` 签名参数，`sign_server.py` 通过 Playwright 驱动真实 Chromium 浏览器访问抖音搜索页，拦截请求中的签名参数。浏览器实例常驻内存，首次初始化约 30s，之后每次签名约 2s。
+> **关于搜索实现**：搜索时通过 Playwright 驱动真实 Chromium 浏览器访问抖音搜索页，拦截响应直接取数据，完全绕过签名验证问题。每次搜索任务会启动独立浏览器进程，约 15-20s 完成。
 
 ### 3. 获取抖音 Cookie
 
@@ -122,13 +120,14 @@ Cookie 中需包含以下关键字段才有效：`sessionid`、`uid_tt`、`msTok
 
 ## 技术架构
 
-### 签名机制
+### 搜索实现
 
-抖音 Web 搜索 API 需要 `a_bogus` 签名参数，该参数由浏览器端 JS 动态生成且与版本强绑定。本项目通过 `sign_server.py` 实现：
+抖音 Web 搜索 API 需要 `a_bogus` 动态签名参数，难以直接伪造。本项目通过 Playwright 驱动真实 Chromium 浏览器搜索：
 
-1. 启动时初始化一个持久 Playwright Chromium 实例，注入登录 Cookie 并访问抖音主页
-2. 每次需要签名时，在已有页面跳转到对应搜索页，拦截 `general/search/single` 请求中的 `a_bogus`、`verifyFp`、`webid` 等参数
-3. 将参数返回给后端，组合进实际的搜索 API 请求
+1. 每次搜索任务启动一个无头 Chromium 实例，注入登录 Cookie
+2. 访问抖音搜索页，通过 `page.route` 拦截 `general/search/single` 的响应，直接读取 JSON 数据
+3. 滚动页面触发翻页，直到凑够目标数量的新内容
+4. 浏览器自己生成签名、自己发请求，完全绕过签名问题
 
 ### 搜索去重逻辑
 
@@ -140,7 +139,7 @@ Cookie 中需包含以下关键字段才有效：`sessionid`、`uid_tt`、`msTok
 |---|---|
 | 后端 | Python 3.12 · FastAPI · SQLModel · APScheduler · httpx |
 | 前端 | React 18 · TypeScript · Vite · TailwindCSS v4 |
-| 签名 | Playwright Chromium（持久浏览器实例，请求拦截） |
+| 搜索 | Playwright Chromium（无头浏览器 + 响应拦截） |
 | 数据库 | SQLite（通过 SQLModel/SQLAlchemy） |
 | 包管理 | uv（Python）· npm（前端） |
 

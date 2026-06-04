@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { type SearchConfig, configsApi } from '../api/client'
+import { type SearchConfig, type TaskRecord, configsApi, tasksApi } from '../api/client'
 import ConfigForm from '../components/ConfigForm'
 import { toast } from '../components/Toast'
 
@@ -8,9 +8,23 @@ export default function Configs() {
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState<SearchConfig | undefined>()
   const [triggering, setTriggering] = useState<number | null>(null)
+  const [runningConfigIds, setRunningConfigIds] = useState<Set<number>>(new Set())
 
   const load = () => configsApi.list().then(setConfigs)
-  useEffect(() => { load() }, [])
+
+  const loadRunning = () =>
+    tasksApi.list().then((tasks: TaskRecord[]) => {
+      setRunningConfigIds(new Set(
+        tasks.filter(t => t.status === 'running').map(t => t.config_id)
+      ))
+    })
+
+  useEffect(() => {
+    load()
+    loadRunning()
+    const t = setInterval(loadRunning, 5000)
+    return () => clearInterval(t)
+  }, [])
 
   const handleTrigger = async (id: number) => {
     setTriggering(id)
@@ -77,9 +91,22 @@ export default function Configs() {
             </div>
             <div className="text-xs text-indigo-500 bg-indigo-50/60 rounded-lg px-3 py-1.5 font-mono mb-3">{c.cron}</div>
             <div className="flex gap-2 pt-3 border-t border-purple-50">
-              <button onClick={() => handleTrigger(c.id)} disabled={triggering === c.id} className="btn-primary" style={{ fontSize: '12px', padding: '6px 14px' }}>
-                {triggering === c.id ? '运行中...' : '▶ 立即执行'}
-              </button>
+              {(() => {
+                const isRunning = runningConfigIds.has(c.id)
+                const isTriggering = triggering === c.id
+                const disabled = isRunning || isTriggering
+                return (
+                  <button
+                    onClick={() => handleTrigger(c.id)}
+                    disabled={disabled}
+                    className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
+                    style={{ fontSize: '12px', padding: '6px 14px' }}
+                    title={isRunning ? '该配置正在运行中，请等待完成' : ''}
+                  >
+                    {isRunning ? '◎ 运行中...' : isTriggering ? '启动中...' : '▶ 立即执行'}
+                  </button>
+                )
+              })()}
               <button onClick={() => setEditing(c)} className="text-xs px-3 py-1.5 rounded-lg bg-white/60 text-slate-500 border border-purple-50 hover:bg-white/80 transition-colors">编辑</button>
               <button onClick={() => handleDelete(c.id)} className="text-xs px-3 py-1.5 rounded-lg bg-red-50/60 text-red-400 border border-red-100 hover:bg-red-50 transition-colors">删除</button>
             </div>

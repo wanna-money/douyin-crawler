@@ -47,3 +47,5 @@ frontend/src/assets/hero.png
 
 # 文档中间产物
 docs/superpowers/
+/logs/
+/.pids/
