@@ -13,6 +13,8 @@ dependencies = [
     "aiofiles>=24.1.0",
     "python-multipart>=0.0.9",
     "playwright>=1.60.0",
+    "pyexecjs>=1.5.1",
+    "playwright-stealth>=2.0.3",
 ]
 
 [project.scripts]

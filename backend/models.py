@@ -72,8 +72,10 @@ class TaskRecord(SQLModel, table=True):
     config_id: int
     status: str = "pending"
     total: int = 0
+    new_count: int = 0
     downloaded: int = 0
     sent: int = 0
+    note: str = ""
     error: Optional[str] = None
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None

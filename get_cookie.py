@@ -88,8 +88,20 @@ async def main() -> None:
             await browser.close()
             return
 
-        # 等待页面稳定，确保所有 Cookie 写入
-        await asyncio.sleep(2)
+        # 访问搜索页，触发 JS 生成 msToken
+        print("正在访问搜索页以获取 msToken ...")
+        await page.goto("https://www.douyin.com/search/美食?type=general")
+        await asyncio.sleep(3)
+
+        # 等待 msToken 写入 cookie
+        for _ in range(10):
+            cookies_raw = await context.cookies()
+            if any(c["name"] == "msToken" for c in cookies_raw):
+                print("✅ msToken 已获取")
+                break
+            await asyncio.sleep(1)
+        else:
+            print("⚠️  未检测到 msToken，继续使用当前 Cookie")
 
         cookies = await context.cookies()
         cookie_str = "; ".join(

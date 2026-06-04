@@ -2,13 +2,29 @@
 import os
 from pathlib import Path
 from fastapi import APIRouter, Query, HTTPException
-from backend.logger import read_log_entries, list_log_dates
+from sqlmodel import Session, select
+from backend.database import get_engine
+from backend.models import AppSetting
+from backend.logger import read_log_entries, list_log_dates, read_log_entries_by_task
 
 router = APIRouter(prefix="/api/logs", tags=["logs"])
 
 
 def _get_base_dir() -> str:
+    """优先读数据库 download_dir 设置，其次 env，最后默认值。"""
+    try:
+        with Session(get_engine()) as session:
+            s = session.exec(select(AppSetting).where(AppSetting.key == "download_dir")).first()
+            if s and s.value:
+                return s.value
+    except Exception:
+        pass
     return os.getenv("DOWNLOAD_DIR", "downloads")
+
+
+@router.get("/task/{task_id}")
+def get_logs_by_task(task_id: int):
+    return read_log_entries_by_task(task_id, base_dir=_get_base_dir())
 
 
 @router.get("/dates")

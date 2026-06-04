@@ -4,7 +4,6 @@ import Tasks from './pages/Tasks'
 import Settings from './pages/Settings'
 import Cookies from './pages/Cookies'
 import Channels from './pages/Channels'
-import Logs from './pages/Logs'
 import LLMConfigPage from './pages/LLMConfig'
 import ToastContainer from './components/Toast'
 
@@ -14,7 +13,6 @@ const NAV_GROUPS = [
     items: [
       { to: '/', label: '搜索配置', icon: '🔍' },
       { to: '/tasks', label: '任务记录', icon: '📋' },
-      { to: '/logs', label: '采集日志', icon: '📁' },
     ],
   },
   {
@@ -83,7 +81,6 @@ export default function App() {
           <Routes>
             <Route path="/" element={<Configs />} />
             <Route path="/tasks" element={<Tasks />} />
-            <Route path="/logs" element={<Logs />} />
             <Route path="/llm" element={<LLMConfigPage />} />
             <Route path="/cookies" element={<Cookies />} />
             <Route path="/channels" element={<Channels />} />

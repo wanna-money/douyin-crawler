@@ -129,26 +129,29 @@ async def run_task(config_id: int, engine=None) -> int:
         searcher = DouyinSearcher(client)
         downloader = Downloader(client=client, base_dir=download_dir)
 
-        if config_search_type == "hashtag":
-            items = await searcher.search_hashtag(config_query, limit=config_limit)
-        else:
-            items = await searcher.search_keyword(
-                keyword=config_query,
-                limit=config_limit,
-                sort_type=config_sort_type,
-                publish_time=config_publish_time,
-                content_type=config_content_type,
-                filter_duration=config_filter_duration,
-            )
-
-        # 去重：查询该配置曾经见过的 aweme_id
+        # 预先加载历史去重集合
         with Session(engine) as session:
             existing_ids = set(
                 row.aweme_id for row in session.exec(
                     select(SeenRecord).where(SeenRecord.config_id == config_id)
                 ).all()
             )
-        new_items = [it for it in items if it["aweme_id"] not in existing_ids]
+
+        if config_search_type == "hashtag":
+            items, nil_reason = await searcher.search_hashtag(config_query, limit=config_limit)
+            new_items = [it for it in items if it["aweme_id"] not in existing_ids]
+        else:
+            # 将历史 id 传入，搜索器内部持续翻页直到凑够 limit 条新内容
+            new_items, nil_reason = await searcher.search_keyword(
+                keyword=config_query,
+                limit=config_limit,
+                sort_type=config_sort_type,
+                publish_time=config_publish_time,
+                content_type=config_content_type,
+                filter_duration=config_filter_duration,
+                exclude_ids=existing_ids,
+            )
+            items = new_items  # 此时 items 即为去重后的新内容
 
         # 立即将本次搜索到的新内容写入 SeenRecord，无论后续下载是否成功
         if new_items:
@@ -239,10 +242,19 @@ async def run_task(config_id: int, engine=None) -> int:
         with Session(engine) as session:
             task = session.get(TaskRecord, task_id)
             task.status = "done"
-            task.total = len(items)
+            task.total = len(new_items)
+            task.new_count = len(new_items)
             task.downloaded = len(downloaded_items)
             task.sent = sent
             task.finished_at = _utcnow()
+            if nil_reason:
+                task.note = f"搜索无结果：{nil_reason}"
+            elif len(new_items) == 0:
+                task.note = "无新内容（全部为历史重复）"
+            elif len(new_items) > 0 and len(downloaded_items) == 0:
+                task.note = f"新内容 {len(new_items)} 条，下载全部失败"
+            elif channel_cfg and not channel_cfg.get("app_id"):
+                task.note = "未配置通知渠道 app_id，跳过推送"
             session.add(task)
             session.commit()
 

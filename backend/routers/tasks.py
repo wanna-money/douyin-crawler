@@ -1,10 +1,15 @@
 from fastapi import APIRouter, Depends, BackgroundTasks, HTTPException
+from pydantic import BaseModel
 from sqlmodel import Session, select
 from backend.database import get_session
 from backend.models import TaskRecord, SearchConfig
 from backend.task_runner import run_task
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
+
+
+class NoteUpdate(BaseModel):
+    note: str
 
 
 @router.get("")
@@ -19,6 +24,18 @@ async def trigger_task(config_id: int, background_tasks: BackgroundTasks, sessio
         raise HTTPException(status_code=404, detail="Config not found")
     background_tasks.add_task(run_task, config_id=config_id)
     return {"message": f"Task for config '{config.name}' started"}
+
+
+@router.patch("/{task_id}/note")
+def update_note(task_id: int, body: NoteUpdate, session: Session = Depends(get_session)):
+    task = session.get(TaskRecord, task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Not found")
+    task.note = body.note
+    session.add(task)
+    session.commit()
+    session.refresh(task)
+    return task
 
 
 @router.delete("/{task_id}")

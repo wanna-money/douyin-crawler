@@ -10,6 +10,20 @@ logger = logging.getLogger(__name__)
 
 _FEISHU_API = "https://open.feishu.cn/open-apis"
 
+
+def _http_client(**kwargs) -> httpx.AsyncClient:
+    """创建 httpx 客户端，自动读取系统代理环境变量。"""
+    proxy = (
+        os.environ.get("HTTPS_PROXY")
+        or os.environ.get("https_proxy")
+        or os.environ.get("HTTP_PROXY")
+        or os.environ.get("http_proxy")
+        or os.environ.get("ALL_PROXY")
+    )
+    if proxy:
+        return httpx.AsyncClient(proxy=proxy, **kwargs)
+    return httpx.AsyncClient(**kwargs)
+
 # token 缓存：{ app_id: (token, expire_at) }
 _token_cache: dict[str, tuple[str, float]] = {}
 
@@ -32,7 +46,7 @@ async def get_tenant_token(app_id: str, app_secret: str) -> str:
     if cached and cached[1] > now:
         return cached[0]
 
-    async with httpx.AsyncClient(timeout=10) as client:
+    async with _http_client(timeout=10) as client:
         resp = await client.post(
             f"{_FEISHU_API}/auth/v3/tenant_access_token/internal",
             json={"app_id": app_id, "app_secret": app_secret},
@@ -55,7 +69,7 @@ async def upload_image(token: str, file_path: str) -> Optional[str]:
     if not os.path.exists(file_path):
         return None
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
+        async with _http_client(timeout=30) as client:
             with open(file_path, "rb") as f:
                 resp = await client.post(
                     f"{_FEISHU_API}/im/v1/images",
@@ -148,7 +162,7 @@ async def send_message(
     content: str,
 ) -> bool:
     """发送消息到指定群"""
-    async with httpx.AsyncClient(timeout=15) as client:
+    async with _http_client(timeout=15) as client:
         resp = await client.post(
             f"{_FEISHU_API}/im/v1/messages",
             params={"receive_id_type": "chat_id"},
@@ -177,7 +191,7 @@ async def list_bot_chats(app_id: str, app_secret: str) -> list[dict]:
     token = await get_tenant_token(app_id, app_secret)
     chats = []
     page_token = None
-    async with httpx.AsyncClient(timeout=15) as client:
+    async with _http_client(timeout=15) as client:
         while True:
             params: dict = {"page_size": 100}
             if page_token:

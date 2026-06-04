@@ -4,7 +4,7 @@ from typing import Any
 _DEFAULT_UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/125.0.0.0 Safari/537.36"
+    "Chrome/148.0.0.0 Safari/537.36"
 )
 
 
@@ -16,10 +16,19 @@ class DouyinClient:
     def _build_headers(self) -> dict:
         return {
             "User-Agent": _DEFAULT_UA,
-            "Referer": "https://www.douyin.com/",
+            "Referer": "https://www.douyin.com/?recommend=1",
             "Cookie": self.cookie,
             "Accept": "application/json, text/plain, */*",
-            "Accept-Language": "zh-CN,zh;q=0.9",
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache",
+            "sec-ch-ua": '"Chromium";v="148", "Google Chrome";v="148", "Not/A)Brand";v="99"',
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": '"macOS"',
+            "sec-fetch-dest": "empty",
+            "sec-fetch-mode": "cors",
+            "sec-fetch-site": "same-origin",
+            "priority": "u=1, i",
         }
 
     async def get(self, url: str, params: dict) -> Any:

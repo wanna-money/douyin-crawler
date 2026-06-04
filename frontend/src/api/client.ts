@@ -25,9 +25,13 @@ export interface TaskRecord {
   config_id: number
   status: string
   total: number
+  new_count: number
   downloaded: number
   sent: number
+  note: string
   error: string | null
+  started_at: string | null
+  finished_at: string | null
   created_at: string
 }
 
@@ -86,6 +90,7 @@ export const configsApi = {
 
 export const tasksApi = {
   list: () => api.get<TaskRecord[]>('/tasks').then(r => r.data),
+  updateNote: (id: number, note: string) => api.patch(`/tasks/${id}/note`, { note }).then(r => r.data),
   delete: (id: number) => api.delete(`/tasks/${id}`).then(r => r.data),
   clear: () => api.delete('/tasks').then(r => r.data),
 }
@@ -121,6 +126,7 @@ export const channelsApi = {
 export const logsApi = {
   dates: () => api.get<string[]>('/logs/dates').then(r => r.data),
   entries: (date: string) => api.get<LogEntry[]>(`/logs?date=${date}`).then(r => r.data),
+  byTask: (taskId: number) => api.get<LogEntry[]>(`/logs/task/${taskId}`).then(r => r.data),
   deleteDate: (date: string) => api.delete(`/logs?date=${date}`).then(r => r.data),
   clearAll: () => api.delete('/logs/all').then(r => r.data),
 }
