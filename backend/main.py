@@ -1,5 +1,7 @@
+import logging
 import os
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone, timedelta
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -10,6 +12,44 @@ from backend.routers import configs, tasks, downloads, settings, cookies, channe
 from backend.scheduler import start_scheduler, scheduler
 
 load_dotenv()
+
+
+def _setup_logging() -> None:
+    """配置全局日志：带时区的时间戳，自动读取 TZ 环境变量。"""
+    tz_name = os.getenv("TZ", "Asia/Shanghai")
+    try:
+        offset_hours = {
+            "Asia/Shanghai": 8, "Asia/Beijing": 8, "Asia/Chongqing": 8,
+            "Asia/Hong_Kong": 8, "Asia/Taipei": 8, "Asia/Tokyo": 9,
+            "UTC": 0, "America/New_York": -5, "America/Los_Angeles": -8,
+            "Europe/London": 0, "Europe/Berlin": 1,
+        }.get(tz_name, 8)
+        tz = timezone(timedelta(hours=offset_hours))
+    except Exception:
+        tz = timezone(timedelta(hours=8))
+
+    class LocalFormatter(logging.Formatter):
+        def formatTime(self, record, datefmt=None):
+            dt = datetime.fromtimestamp(record.created, tz=tz)
+            return dt.strftime("%Y-%m-%d %H:%M:%S %z")
+
+    fmt = LocalFormatter("%(asctime)s [%(levelname)s] %(name)s - %(message)s")
+    handler = logging.StreamHandler()
+    handler.setFormatter(fmt)
+
+    root = logging.getLogger()
+    root.setLevel(logging.INFO)
+    # 避免重复添加
+    if not any(isinstance(h, logging.StreamHandler) for h in root.handlers):
+        root.addHandler(handler)
+
+    # 降低噪音
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("watchfiles").setLevel(logging.WARNING)
+
+
+_setup_logging()
 
 
 def create_app(engine=None) -> FastAPI:
