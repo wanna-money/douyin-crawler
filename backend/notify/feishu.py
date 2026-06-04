@@ -82,10 +82,9 @@ async def upload_image(token: str, file_path: str) -> Optional[str]:
 
 
 def _build_card(item: dict, config_name: str, image_key: Optional[str]) -> dict:
-    """
-    构建单条内容的飞书卡片（Schema 2.0）。
-    包含：封面图 / 博主名 / 描述 / 抖音原链接按钮
-    """
+    """用 SDK CardBuilder 构建卡片，格式完全符合 Schema 2.0 规范。"""
+    from lark_oapi.channel.card.builder import new_card
+
     aweme_id = item.get("aweme_id", "")
     desc = item.get("desc", "")[:200]
     author = item.get("author", "")
@@ -94,65 +93,27 @@ def _build_card(item: dict, config_name: str, image_key: Optional[str]) -> dict:
     type_label = "📹 视频" if media_type == "video" else "🖼 图文"
     header_color = "wathet" if media_type == "video" else "purple"
 
-    elements = []
+    builder = (
+        new_card()
+        .header(title=f"{type_label} · {config_name}", template=header_color)
+    )
 
-    # 封面图（图集第一张 / 视频封面）
+    # 封面图
     if image_key:
-        elements.append({
-            "tag": "img",
-            "img_key": image_key,
-            "alt": {"tag": "plain_text", "content": desc[:30] or author},
-            "mode": "fit_horizontal",
-            "preview": True,
-        })
+        builder.image(image_key, alt=desc[:30] or author)
 
-    # 作者
-    elements.append({
-        "tag": "div",
-        "text": {
-            "tag": "lark_md",
-            "content": f"**{author}**",
-        },
-    })
-
-    # 描述
+    # 作者 + 描述
+    builder.markdown(f"**{author}**")
     if desc:
-        elements.append({
-            "tag": "div",
-            "text": {
-                "tag": "lark_md",
-                "content": desc,
-            },
-        })
+        builder.markdown(desc)
 
-    # 分割线
-    elements.append({"tag": "hr"})
+    builder.divider()
 
-    # 跳转按钮（仅视频有有效链接）
+    # 跳转按钮（直接作为顶层元素，不需要 action 容器）
     if douyin_url:
-        elements.append({
-            "tag": "action",
-            "actions": [{
-                "tag": "button",
-                "text": {"tag": "plain_text", "content": "在抖音中查看"},
-                "type": "primary",
-                "multi_url": {
-                    "url": douyin_url,
-                    "pc_url": douyin_url,
-                    "android_url": douyin_url,
-                    "ios_url": douyin_url,
-                },
-            }],
-        })
+        builder.button("在抖音中查看", style="primary", url=douyin_url)
 
-    return {
-        "schema": "2.0",
-        "header": {
-            "title": {"tag": "plain_text", "content": f"{type_label} · {config_name}"},
-            "template": header_color,
-        },
-        "body": {"elements": elements},
-    }
+    return builder.to_dict()
 
 
 async def upload_video(token: str, file_path: str) -> Optional[str]:
