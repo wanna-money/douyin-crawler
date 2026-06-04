@@ -89,12 +89,15 @@ async def upload_image(token: str, file_path: str) -> Optional[str]:
 
 
 def _build_card(items: list[dict], config_name: str, image_keys: dict[str, str]) -> dict:
-    """构建飞书卡片消息（schema 2.0）"""
+    """构建飞书卡片消息（schema 2.0），使用 div+lark_md 格式"""
     elements = []
 
     elements.append({
-        "tag": "markdown",
-        "content": f"**📡 {config_name}** · 本次采集 {len(items)} 条新内容",
+        "tag": "div",
+        "text": {
+            "tag": "lark_md",
+            "content": f"**📡 {config_name}** · 本次采集 {len(items)} 条新内容",
+        },
     })
     elements.append({"tag": "hr"})
 
@@ -106,22 +109,24 @@ def _build_card(items: list[dict], config_name: str, image_keys: dict[str, str])
         type_icon = "📹" if media_type == "video" else "🖼"
 
         text_md = f"**{type_icon} {author}**\n{desc}" if desc else f"**{type_icon} {author}**"
-        block: dict = {"tag": "markdown", "content": text_md}
 
         img_key = None
         for path in file_paths:
             if path in image_keys:
                 img_key = image_keys[path]
                 break
+
+        block: dict = {
+            "tag": "div",
+            "text": {"tag": "lark_md", "content": text_md},
+        }
         if img_key:
-            elements.append(block)
-            elements.append({
+            block["extra"] = {
                 "tag": "img",
                 "img_key": img_key,
                 "alt": {"tag": "plain_text", "content": desc[:20]},
-            })
-        else:
-            elements.append(block)
+            }
+        elements.append(block)
 
         if media_type == "video" and file_paths:
             elements.append({
@@ -156,23 +161,22 @@ async def send_message(
         resp = await client.post(
             f"{_FEISHU_API}/im/v1/messages",
             params={"receive_id_type": "chat_id"},
-            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json; charset=utf-8"},
             json={
                 "receive_id": chat_id,
                 "msg_type": msg_type,
                 "content": content,
             },
         )
-        resp.raise_for_status()
+        # 先读响应体再判断状态，避免 raise_for_status 吃掉错误详情
         data = resp.json()
-        if data.get("code", -1) != 0:
-            code = data.get("code", -1)
-            msg = data.get("msg", "未知错误")
+        if not resp.is_success or data.get("code", -1) != 0:
+            code = data.get("code", resp.status_code)
+            msg = data.get("msg", resp.text)
             hint = _FEISHU_ERROR_HINTS.get(code, "")
             err = f"发送消息失败 [code={code}]: {msg}" + (f"（{hint}）" if hint else "")
-            logger.warning("飞书发送失败详情: %s | 响应体: %s", err, data)
+            logger.warning("飞书发送失败: %s | 响应: %s", err, data)
             raise RuntimeError(err)
-        return True
         return True
 
 
