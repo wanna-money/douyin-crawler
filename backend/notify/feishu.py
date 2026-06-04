@@ -1,5 +1,6 @@
 # backend/notify/feishu.py
 import asyncio
+import json
 import logging
 import os
 import time
@@ -10,9 +11,19 @@ logger = logging.getLogger(__name__)
 
 _FEISHU_API = "https://open.feishu.cn/open-apis"
 
+_token_cache: dict[str, tuple[str, float]] = {}
+
+_FEISHU_ERROR_HINTS: dict[int, str] = {
+    99991663: "应用未安装到企业，请在飞书管理后台发布应用",
+    99991401: "app_id 或 app_secret 错误",
+    10003: "chat_id 无效或机器人未加入该群",
+    10013: "机器人没有发消息权限，请在应用管理页开启 im:message 权限",
+    10014: "机器人被群管理员禁止发言",
+    11000: "应用权限不足，请检查是否已开启「发送消息」能力",
+}
+
 
 def _http_client(**kwargs) -> httpx.AsyncClient:
-    """创建 httpx 客户端，自动读取系统代理环境变量。"""
     proxy = (
         os.environ.get("HTTPS_PROXY")
         or os.environ.get("https_proxy")
@@ -24,28 +35,12 @@ def _http_client(**kwargs) -> httpx.AsyncClient:
         return httpx.AsyncClient(proxy=proxy, **kwargs)
     return httpx.AsyncClient(**kwargs)
 
-# token 缓存：{ app_id: (token, expire_at) }
-_token_cache: dict[str, tuple[str, float]] = {}
-
-
-_FEISHU_ERROR_HINTS: dict[int, str] = {
-    99991663: "应用未安装到企业，请在飞书管理后台发布应用",
-    99991401: "app_id 或 app_secret 错误",
-    10003: "chat_id 无效或机器人未加入该群",
-    10012: "消息内容格式错误",
-    10013: "机器人没有发消息权限，请在应用管理页开启 im:message 权限",
-    10014: "机器人被群管理员禁止发言",
-    11000: "应用权限不足，请检查是否已开启「发送消息」能力",
-}
-
 
 async def get_tenant_token(app_id: str, app_secret: str) -> str:
-    """获取 tenant_access_token，缓存 1.8 小时"""
     now = time.time()
     cached = _token_cache.get(app_id)
     if cached and cached[1] > now:
         return cached[0]
-
     async with _http_client(timeout=10) as client:
         resp = await client.post(
             f"{_FEISHU_API}/auth/v3/tenant_access_token/internal",
@@ -59,13 +54,11 @@ async def get_tenant_token(app_id: str, app_secret: str) -> str:
             hint = _FEISHU_ERROR_HINTS.get(code, "")
             raise RuntimeError(f"获取飞书 token 失败 [code={code}]: {msg}" + (f"（{hint}）" if hint else ""))
         token = data["tenant_access_token"]
-        expire = data.get("expire", 7200)
-        _token_cache[app_id] = (token, now + expire - 360)  # 提前 6 分钟过期
+        _token_cache[app_id] = (token, now + data.get("expire", 7200) - 360)
         return token
 
 
 async def upload_image(token: str, file_path: str) -> Optional[str]:
-    """上传图片到飞书，返回 image_key；失败返回 None"""
     if not os.path.exists(file_path):
         return None
     try:
@@ -77,111 +70,98 @@ async def upload_image(token: str, file_path: str) -> Optional[str]:
                     data={"image_type": "message"},
                     files={"image": f},
                 )
-            resp.raise_for_status()
-            data = resp.json()
-            if data.get("code", -1) != 0:
-                logger.warning("上传图片失败: %s", data.get("msg"))
-                return None
-            return data["data"]["image_key"]
+        resp.raise_for_status()
+        data = resp.json()
+        if data.get("code", -1) != 0:
+            logger.warning("上传图片失败: %s", data.get("msg"))
+            return None
+        return data["data"]["image_key"]
     except Exception as e:
         logger.warning("上传图片异常: %s", e)
         return None
 
 
-def _build_card(items: list[dict], config_name: str, image_keys: dict[str, str]) -> dict:
-    """构建飞书卡片消息（schema 2.0），使用 div+lark_md 格式"""
-    elements = []
+def _build_post(items: list[dict], config_name: str, image_keys: dict[str, str]) -> dict:
+    """
+    构建飞书 post 富文本消息。
+    post 格式是飞书最稳定的富文本格式，支持加粗/图片，无版本兼容问题。
+    content 结构: {"zh_cn": {"title": "...", "content": [[line], [line], ...]}}
+    每行是一个列表，列表内是行内元素（text / img）。
+    """
+    lines = []
 
-    elements.append({
-        "tag": "div",
-        "text": {
-            "tag": "lark_md",
-            "content": f"**📡 {config_name}** · 本次采集 {len(items)} 条新内容",
-        },
-    })
-    elements.append({"tag": "hr"})
+    # 标题行
+    lines.append([{"tag": "text", "text": f"共 {len(items)} 条新内容", "style": ["bold"]}])
 
-    for item in items[:10]:
-        desc = item.get("desc", "")[:100]
+    for item in items[:20]:
+        desc = item.get("desc", "")[:120]
         author = item.get("author", "")
         media_type = item.get("media_type", "")
         file_paths = item.get("file_paths", [])
-        type_icon = "📹" if media_type == "video" else "🖼"
+        type_label = "视频" if media_type == "video" else "图文"
 
-        text_md = f"**{type_icon} {author}**\n{desc}" if desc else f"**{type_icon} {author}**"
+        # 作者 + 类型行
+        line: list = [
+            {"tag": "text", "text": f"[{type_label}] ", "style": ["bold"]},
+            {"tag": "text", "text": author, "style": ["bold"]},
+        ]
+        lines.append(line)
 
-        img_key = None
+        # 描述行
+        if desc:
+            lines.append([{"tag": "text", "text": desc}])
+
+        # 图片（仅图集第一张）
         for path in file_paths:
             if path in image_keys:
-                img_key = image_keys[path]
+                lines.append([{"tag": "img", "image_key": image_keys[path]}])
                 break
 
-        block: dict = {
-            "tag": "div",
-            "text": {"tag": "lark_md", "content": text_md},
-        }
-        if img_key:
-            block["extra"] = {
-                "tag": "img",
-                "img_key": img_key,
-                "alt": {"tag": "plain_text", "content": desc[:20]},
-            }
-        elements.append(block)
-
+        # 视频文件名
         if media_type == "video" and file_paths:
-            elements.append({
-                "tag": "note",
-                "elements": [{"tag": "plain_text", "content": f"视频已下载: {os.path.basename(file_paths[0])}"}],
-            })
+            lines.append([{"tag": "text", "text": f"  ▶ {os.path.basename(file_paths[0])}", "style": ["italic"]}])
 
-    if len(items) > 10:
-        elements.append({
-            "tag": "note",
-            "elements": [{"tag": "plain_text", "content": f"还有 {len(items) - 10} 条，请查看下载目录"}],
-        })
+        # 空行分隔
+        lines.append([{"tag": "text", "text": ""}])
+
+    if len(items) > 20:
+        lines.append([{"tag": "text", "text": f"…还有 {len(items) - 20} 条，请查看下载目录", "style": ["italic"]}])
 
     return {
-        "schema": "2.0",
-        "body": {"elements": elements},
-        "header": {
-            "title": {"tag": "plain_text", "content": f"抖音采集 · {config_name}"},
-            "template": "indigo",
-        },
+        "zh_cn": {
+            "title": f"📡 抖音采集 · {config_name}",
+            "content": lines,
+        }
     }
 
 
-async def send_message(
-    token: str,
-    chat_id: str,
-    msg_type: str,
-    content: str,
-) -> bool:
-    """发送消息到指定群"""
+async def _send(token: str, chat_id: str, msg_type: str, content: str) -> bool:
     async with _http_client(timeout=15) as client:
         resp = await client.post(
             f"{_FEISHU_API}/im/v1/messages",
             params={"receive_id_type": "chat_id"},
-            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json; charset=utf-8"},
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json; charset=utf-8",
+            },
             json={
                 "receive_id": chat_id,
                 "msg_type": msg_type,
                 "content": content,
             },
         )
-        # 先读响应体再判断状态，避免 raise_for_status 吃掉错误详情
-        data = resp.json()
-        if not resp.is_success or data.get("code", -1) != 0:
-            code = data.get("code", resp.status_code)
-            msg = data.get("msg", resp.text)
-            hint = _FEISHU_ERROR_HINTS.get(code, "")
-            err = f"发送消息失败 [code={code}]: {msg}" + (f"（{hint}）" if hint else "")
-            logger.warning("飞书发送失败: %s | 响应: %s", err, data)
-            raise RuntimeError(err)
-        return True
+    data = resp.json()
+    if not resp.is_success or data.get("code", -1) != 0:
+        code = data.get("code", resp.status_code)
+        msg = data.get("msg", resp.text)
+        hint = _FEISHU_ERROR_HINTS.get(code, "")
+        err = f"发送消息失败 [code={code}]: {msg}" + (f"（{hint}）" if hint else "")
+        logger.warning("飞书发送失败: %s | 响应: %s", err, data)
+        raise RuntimeError(err)
+    return True
 
 
 async def list_bot_chats(app_id: str, app_secret: str) -> list[dict]:
-    """查询机器人所在的群列表，返回 [{chat_id, name, avatar}]"""
     token = await get_tenant_token(app_id, app_secret)
     chats = []
     page_token = None
@@ -218,17 +198,13 @@ class FeishuBotNotifier:
         self.app_secret = app_secret
         self.chat_id = chat_id
 
-    async def _token(self) -> str:
-        return await get_tenant_token(self.app_id, self.app_secret)
-
     async def send_media_items(self, items: list[dict], config_name: str = "") -> int:
-        """上传图片并发送卡片消息，返回成功发送条数"""
         if not items:
             return 0
         try:
-            token = await self._token()
+            token = await get_tenant_token(self.app_id, self.app_secret)
 
-            # 上传所有图片文件，建立 path -> image_key 映射
+            # 上传图集封面图
             image_keys: dict[str, str] = {}
             for item in items:
                 if item.get("media_type") != "image":
@@ -240,16 +216,14 @@ class FeishuBotNotifier:
                             image_keys[path] = key
                         await asyncio.sleep(0.2)
 
-            import json
-            card = _build_card(items, config_name, image_keys)
-            ok = await send_message(token, self.chat_id, "interactive", json.dumps(card))
-            return len(items) if ok else 0
+            post = _build_post(items, config_name, image_keys)
+            await _send(token, self.chat_id, "post", json.dumps(post))
+            return len(items)
         except Exception as e:
             logger.error("飞书机器人发送失败: %s", e)
             return 0
 
 
-# 保持向后兼容：旧代码调用 FeishuNotifier 的地方
+# 向后兼容
 class FeishuNotifier(FeishuBotNotifier):
-    """别名，保持 task_runner 的调用兼容"""
     pass
