@@ -11,12 +11,8 @@ class Downloader:
     async def download(self, item: dict) -> list[str]:
         aweme_id = item["aweme_id"]
         paths = []
-        if item["media_type"] == "video" and item.get("video_url"):
-            dest = os.path.join(self.base_dir, f"{aweme_id}.mp4")
-            if not os.path.exists(dest):
-                await self.client.download_file(item["video_url"], dest)
-            paths.append(dest)
-            # 同时下载封面图，供飞书推送使用
+        if item["media_type"] == "video":
+            # 只下载封面图，不下载视频本体（节省带宽）
             cover_url = item.get("cover_url")
             if cover_url:
                 cover_dest = os.path.join(self.base_dir, f"{aweme_id}_cover.jpg")
