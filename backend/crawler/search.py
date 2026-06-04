@@ -97,29 +97,34 @@ async def _playwright_search(
             page = await context.new_page()
             page_ref["page"] = page
 
-            # 拦截搜索响应，直接读数据
+            # 只拦截搜索 API，其他请求（图片/JS/CSS等）直接放行
             async def on_route(route):
                 nonlocal has_more, nil_reason
-                resp = await route.fetch()
-                if "general/search/single" in route.request.url:
+                if "general/search/single" not in route.request.url:
+                    await route.continue_()
+                    return
+                try:
+                    resp = await route.fetch()
+                    body = await resp.json()
+                    for item in (body.get("data") or []):
+                        aweme = item.get("aweme_info")
+                        if not aweme:
+                            continue
+                        parsed = _parse_aweme(aweme)
+                        if parsed and parsed["aweme_id"] not in seen:
+                            seen.add(parsed["aweme_id"])
+                            new_results.append(parsed)
+                    has_more = bool(body.get("has_more"))
+                    nil = body.get("search_nil_info")
+                    if nil and not new_results:
+                        item_key = nil.get("search_nil_item", "") or nil.get("search_nil_type", "")
+                        nil_reason = _NIL_REASONS.get(item_key, f"搜索为空：{nil.get('search_nil_type')}/{nil.get('search_nil_item')}")
+                    await route.fulfill(response=resp)
+                except Exception:
                     try:
-                        body = await resp.json()
-                        for item in (body.get("data") or []):
-                            aweme = item.get("aweme_info")
-                            if not aweme:
-                                continue
-                            parsed = _parse_aweme(aweme)
-                            if parsed and parsed["aweme_id"] not in seen:
-                                seen.add(parsed["aweme_id"])
-                                new_results.append(parsed)
-                        has_more = bool(body.get("has_more"))
-                        nil = body.get("search_nil_info")
-                        if nil and not new_results:
-                            item_key = nil.get("search_nil_item", "") or nil.get("search_nil_type", "")
-                            nil_reason = _NIL_REASONS.get(item_key, f"搜索为空：{nil.get('search_nil_type')}/{nil.get('search_nil_item')}")
+                        await route.continue_()
                     except Exception:
                         pass
-                await route.fulfill(response=resp)
 
             await page.route("**/*", on_route)
 

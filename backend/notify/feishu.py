@@ -89,60 +89,50 @@ async def upload_image(token: str, file_path: str) -> Optional[str]:
 
 
 def _build_card(items: list[dict], config_name: str, image_keys: dict[str, str]) -> dict:
-    """构建飞书卡片消息，每条采集结果一个卡片块"""
+    """构建飞书卡片消息（schema 2.0）"""
     elements = []
 
-    # 标题行
     elements.append({
-        "tag": "div",
-        "text": {
-            "tag": "lark_md",
-            "content": f"**📡 {config_name}** · 本次采集 {len(items)} 条新内容",
-        }
+        "tag": "markdown",
+        "content": f"**📡 {config_name}** · 本次采集 {len(items)} 条新内容",
     })
     elements.append({"tag": "hr"})
 
-    for item in items[:10]:  # 单卡片最多展示 10 条，避免消息过长
-        aweme_id = item.get("aweme_id", "")
-        desc = item.get("desc", "")[:80]
+    for item in items[:10]:
+        desc = item.get("desc", "")[:100]
         author = item.get("author", "")
         media_type = item.get("media_type", "")
         file_paths = item.get("file_paths", [])
         type_icon = "📹" if media_type == "video" else "🖼"
 
-        # 文字块
         text_md = f"**{type_icon} {author}**\n{desc}" if desc else f"**{type_icon} {author}**"
-        block: dict = {
-            "tag": "div",
-            "text": {"tag": "lark_md", "content": text_md},
-        }
+        block: dict = {"tag": "markdown", "content": text_md}
 
-        # 图片：优先用已上传的 image_key，附到卡片
         img_key = None
         for path in file_paths:
             if path in image_keys:
                 img_key = image_keys[path]
                 break
         if img_key:
-            block["extra"] = {
+            elements.append(block)
+            elements.append({
                 "tag": "img",
                 "img_key": img_key,
                 "alt": {"tag": "plain_text", "content": desc[:20]},
-            }
+            })
+        else:
+            elements.append(block)
 
-        elements.append(block)
-
-        # 视频提示
         if media_type == "video" and file_paths:
             elements.append({
                 "tag": "note",
-                "elements": [{"tag": "plain_text", "content": f"视频已下载: {os.path.basename(file_paths[0])}"}]
+                "elements": [{"tag": "plain_text", "content": f"视频已下载: {os.path.basename(file_paths[0])}"}],
             })
 
     if len(items) > 10:
         elements.append({
             "tag": "note",
-            "elements": [{"tag": "plain_text", "content": f"还有 {len(items) - 10} 条，请查看下载目录"}]
+            "elements": [{"tag": "plain_text", "content": f"还有 {len(items) - 10} 条，请查看下载目录"}],
         })
 
     return {
@@ -180,7 +170,7 @@ async def send_message(
             msg = data.get("msg", "未知错误")
             hint = _FEISHU_ERROR_HINTS.get(code, "")
             err = f"发送消息失败 [code={code}]: {msg}" + (f"（{hint}）" if hint else "")
-            logger.warning(err)
+            logger.warning("飞书发送失败详情: %s | 响应体: %s", err, data)
             raise RuntimeError(err)
         return True
         return True
