@@ -303,12 +303,12 @@ export default function Tasks() {
                           </td>
                           <td className="px-4 py-3 text-slate-600 tabular-nums whitespace-nowrap">{t.sent}</td>
                           <td className="px-4 py-3 max-w-xs">
-                            {(t.note || (t.status === 'failed' && t.error)) ? (
+                            {(t.note || t.status === 'failed') ? (
                               <span
                                 className={`text-xs truncate block ${t.status === 'failed' ? 'text-red-400' : 'text-amber-600'}`}
-                                title={t.note || t.error || ''}
+                                title={t.status === 'failed' ? (t.error || t.note || '任务失败') : t.note}
                               >
-                                {t.status === 'failed' ? (t.error || t.note) : t.note}
+                                {t.status === 'failed' ? (t.error || t.note || '任务失败') : t.note}
                               </span>
                             ) : (
                               <span className="text-xs text-slate-300">—</span>

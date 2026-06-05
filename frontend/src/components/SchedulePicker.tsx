@@ -18,6 +18,24 @@ interface Parsed {
 }
 
 function parseCron(cron: string): Parsed {
+  // 分号分隔的多段 cron：逐段解析时间点，模式取第一段
+  const segments = cron.trim().split(';').map(s => s.trim()).filter(Boolean)
+  if (segments.length > 1) {
+    const times: Array<{ hour: number; minute: number }> = []
+    let mode: Mode = 'daily'
+    let days: number[] = []
+    for (const seg of segments) {
+      const parts = seg.split(/\s+/)
+      if (parts.length !== 5) continue
+      const [minPart, hrPart, , , dow] = parts
+      times.push({ hour: parseInt(hrPart), minute: parseInt(minPart) })
+      if (dow === '1-5') { mode = 'weekday'; days = [1,2,3,4,5] }
+      else if (dow !== '*') { mode = 'weekly'; days = dow.split(',').map(Number) }
+      else { mode = 'daily' }
+    }
+    if (times.length > 0) return { mode, times, days, interval: 4 }
+  }
+
   const parts = cron.trim().split(/\s+/)
   const fallback: Parsed = { mode: 'advanced', times: [{ hour: 9, minute: 0 }], days: [1,2,3,4,5], interval: 4 }
   if (parts.length !== 5) return fallback
@@ -48,21 +66,18 @@ function toCron(mode: Mode, times: Array<{ hour: number; minute: number }>, days
   if (mode === 'advanced') return raw
 
   const sorted = [...times].sort((a, b) => a.hour !== b.hour ? a.hour - b.hour : a.minute - b.minute)
+  const dowStr = mode === 'daily' ? '*' : mode === 'weekday' ? '1-5' : ([...days].sort().join(',') || '*')
 
-  // 如果所有时间点分钟相同，用紧凑语法 "min hour1,hour2 * * dow"
+  // 所有时间点分钟相同，用紧凑语法 "min hour1,hour2 * * dow"
   const allSameMinute = sorted.every(t => t.minute === sorted[0].minute)
   if (allSameMinute) {
     const minStr = sorted[0].minute.toString()
     const hrStr = sorted.map(t => t.hour).join(',')
-    const dowStr = mode === 'daily' ? '*' : mode === 'weekday' ? '1-5' : ([...days].sort().join(',') || '*')
     return `${minStr} ${hrStr} * * ${dowStr}`
   }
 
-  // 分钟不同时，展开为多段 cron（用分号分隔，调度器需支持；否则降级第一条）
-  // APScheduler 不支持多 cron 字符串，降级：只保留第一个时间点
-  const t = sorted[0]
-  const dowStr = mode === 'daily' ? '*' : mode === 'weekday' ? '1-5' : ([...days].sort().join(',') || '*')
-  return `${t.minute} ${t.hour} * * ${dowStr}`
+  // 分钟不同时，每个时间点生成一段 cron，用分号连接
+  return sorted.map(t => `${t.minute} ${t.hour} * * ${dowStr}`).join(';')
 }
 
 function toHuman(mode: Mode, times: Array<{ hour: number; minute: number }>, days: number[], interval: number): string {

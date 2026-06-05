@@ -1,7 +1,8 @@
 # backend/task_runner.py
 import logging
 import os
-from datetime import datetime, timezone
+import httpx
+from datetime import datetime, timezone, timedelta
 from sqlmodel import Session, select
 from backend.database import get_engine
 from backend.models import (
@@ -18,8 +19,11 @@ from backend.llm import check_relevance
 logger = logging.getLogger(__name__)
 
 
+_CST = timezone(timedelta(hours=8))
+
+
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(_CST)
 
 
 def get_setting(key: str, default: str = "", engine=None) -> str:
@@ -121,6 +125,8 @@ async def run_task(config_id: int, engine=None) -> int:
         config_llm_filter_enabled = config.llm_filter_enabled
 
     try:
+        new_items: list = []
+        downloaded_items: list = []
         cookie = _get_default_cookie(engine) or os.getenv("DOUYIN_COOKIE", "")
         download_dir = get_setting("download_dir", os.getenv("DOWNLOAD_DIR", "downloads"), engine) or os.getenv("DOWNLOAD_DIR", "downloads")
         channel_cfg = _get_channel_config(config_channel_id, config_feishu_webhook, engine)
@@ -264,7 +270,15 @@ async def run_task(config_id: int, engine=None) -> int:
                 task = session.get(TaskRecord, task_id)
                 if task:
                     task.status = "failed"
-                    task.error = str(e)
+                    task.total = len(new_items)
+                    task.new_count = task.total
+                    task.downloaded = len(downloaded_items)
+                    if isinstance(e, httpx.ConnectError):
+                        task.error = f"网络连接失败（{type(e).__name__}）：{str(e) or '无法建立 TLS 连接，请检查网络或代理'}"
+                    elif isinstance(e, (httpx.TimeoutException, httpx.ReadTimeout, httpx.ConnectTimeout)):
+                        task.error = f"请求超时（{type(e).__name__}）：{str(e) or '服务端无响应'}"
+                    else:
+                        task.error = str(e) or repr(e)
                     task.finished_at = _utcnow()
                     session.add(task)
                     session.commit()

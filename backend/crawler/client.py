@@ -32,14 +32,19 @@ class DouyinClient:
         }
 
     async def get(self, url: str, params: dict) -> Any:
-        async with httpx.AsyncClient(
-            headers=self._build_headers(),
-            timeout=self.timeout,
-            follow_redirects=True,
-        ) as client:
-            resp = await client.get(url, params=params)
-            resp.raise_for_status()
-            return resp.json()
+        try:
+            async with httpx.AsyncClient(
+                headers=self._build_headers(),
+                timeout=self.timeout,
+                follow_redirects=True,
+            ) as client:
+                resp = await client.get(url, params=params)
+                resp.raise_for_status()
+                return resp.json()
+        except httpx.ConnectError as e:
+            raise RuntimeError(f"抖音 API 连接失败（ConnectError）：无法连接 {url}，请检查网络或 Cookie") from e
+        except httpx.TimeoutException as e:
+            raise RuntimeError(f"抖音 API 请求超时（{type(e).__name__}）：{url}") from e
 
     async def download_file(self, url: str, dest_path: str) -> None:
         async with httpx.AsyncClient(

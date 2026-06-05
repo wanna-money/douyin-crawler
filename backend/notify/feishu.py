@@ -41,21 +41,24 @@ async def get_tenant_token(app_id: str, app_secret: str) -> str:
     cached = _token_cache.get(app_id)
     if cached and cached[1] > now:
         return cached[0]
-    async with _http_client(timeout=10) as client:
-        resp = await client.post(
-            f"{_FEISHU_API}/auth/v3/tenant_access_token/internal",
-            json={"app_id": app_id, "app_secret": app_secret},
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        if data.get("code", -1) != 0:
-            code = data.get("code", -1)
-            msg = data.get("msg", "未知错误")
-            hint = _FEISHU_ERROR_HINTS.get(code, "")
-            raise RuntimeError(f"获取飞书 token 失败 [code={code}]: {msg}" + (f"（{hint}）" if hint else ""))
-        token = data["tenant_access_token"]
-        _token_cache[app_id] = (token, now + data.get("expire", 7200) - 360)
-        return token
+    try:
+        async with _http_client(timeout=10) as client:
+            resp = await client.post(
+                f"{_FEISHU_API}/auth/v3/tenant_access_token/internal",
+                json={"app_id": app_id, "app_secret": app_secret},
+            )
+            resp.raise_for_status()
+    except Exception as e:
+        raise RuntimeError(f"飞书 API 连接失败（{type(e).__name__}）：{str(e) or '无法连接 open.feishu.cn，请检查网络或代理'}") from e
+    data = resp.json()
+    if data.get("code", -1) != 0:
+        code = data.get("code", -1)
+        msg = data.get("msg", "未知错误")
+        hint = _FEISHU_ERROR_HINTS.get(code, "")
+        raise RuntimeError(f"获取飞书 token 失败 [code={code}]: {msg}" + (f"（{hint}）" if hint else ""))
+    token = data["tenant_access_token"]
+    _token_cache[app_id] = (token, now + data.get("expire", 7200) - 360)
+    return token
 
 
 async def upload_image(token: str, file_path: str) -> Optional[str]:

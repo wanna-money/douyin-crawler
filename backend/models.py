@@ -1,6 +1,6 @@
 from sqlmodel import SQLModel, Field
 from typing import Optional
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 _DEFAULT_PROMPT = (
     '判断以下抖音视频内容是否与搜索关键词相关。\n'
@@ -12,8 +12,11 @@ _DEFAULT_PROMPT = (
 )
 
 
+_CST = timezone(timedelta(hours=8))
+
+
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(_CST)
 
 
 class CookieAccount(SQLModel, table=True):

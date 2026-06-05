@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from backend.database import get_session
 from backend.models import SearchConfig
 from backend.schemas import SearchConfigCreate, SearchConfigUpdate
+from backend.scheduler import sync_jobs
 
 router = APIRouter(prefix="/api/configs", tags=["configs"])
 
@@ -19,6 +20,7 @@ def create_config(payload: SearchConfigCreate, session: Session = Depends(get_se
     session.add(config)
     session.commit()
     session.refresh(config)
+    sync_jobs()
     return config
 
 
@@ -33,6 +35,7 @@ def update_config(config_id: int, payload: SearchConfigUpdate, session: Session 
     session.add(config)
     session.commit()
     session.refresh(config)
+    sync_jobs()
     return config
 
 
@@ -43,4 +46,5 @@ def delete_config(config_id: int, session: Session = Depends(get_session)):
         raise HTTPException(status_code=404, detail="Not found")
     session.delete(config)
     session.commit()
+    sync_jobs()
     return {"ok": True}

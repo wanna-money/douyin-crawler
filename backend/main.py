@@ -1,10 +1,12 @@
+import json
+import re
 import logging
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from dotenv import load_dotenv
 
 from backend.database import init_db, get_engine
@@ -51,6 +53,16 @@ def _setup_logging() -> None:
 
 _setup_logging()
 
+_CST = timezone(timedelta(hours=8))
+# 匹配 ISO datetime 字符串，无时区后缀（如 "2026-06-05T03:27:29.131583"）
+_NAIVE_DT_RE = re.compile(
+    r'"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?)"'
+)
+
+
+def _add_cst(m: re.Match) -> str:
+    return f'"{m.group(1)}+08:00"'
+
 
 def create_app(engine=None) -> FastAPI:
     if engine:
@@ -67,6 +79,21 @@ def create_app(engine=None) -> FastAPI:
             scheduler.shutdown(wait=False)
 
     app = FastAPI(title="抖音内容采集系统", lifespan=lifespan)
+
+    @app.middleware("http")
+    async def inject_cst_timezone(request: Request, call_next):
+        response = await call_next(request)
+        if response.headers.get("content-type", "").startswith("application/json"):
+            body = b""
+            async for chunk in response.body_iterator:
+                body += chunk
+            body = _NAIVE_DT_RE.sub(_add_cst, body.decode()).encode()
+            headers = {k: v for k, v in response.headers.items() if k.lower() != "content-length"}
+            return Response(content=body, status_code=response.status_code,
+                            headers=headers, media_type="application/json")
+        return response
+
+
     app.include_router(configs.router)
     app.include_router(tasks.router)
     app.include_router(downloads.router)
