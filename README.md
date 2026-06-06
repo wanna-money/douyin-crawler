@@ -89,7 +89,7 @@ Cookie 中需包含以下关键字段才有效：`sessionid`、`uid_tt`、`msTok
 | 发布时间 | 不限 / 一天内 / 一周内 / 半年内 |
 | 内容类型 | 不限 / 视频 / 图文 |
 | 采集数量 | 目标新内容条数（去重后，不足时自动翻页补齐） |
-| 定时 Cron | Cron 表达式，如 `0 9 * * 1-5`（工作日 9 点） |
+| 定时 Cron | Cron 表达式，如 `0 9 * * mon-fri`（工作日 9 点） |
 | 通知渠道 | 绑定飞书群，留空则使用默认渠道 |
 | LLM 过滤 | 开启后用 AI 判断内容相关性 |
 
@@ -129,6 +129,8 @@ Cookie 中需包含以下关键字段才有效：`sessionid`、`uid_tt`、`msTok
 3. 滚动页面触发翻页，直到凑够目标数量的新内容
 4. 浏览器自己生成签名、自己发请求，完全绕过签名问题
 
+每次搜索任务约需 15-20s 完成。话题抓取（`search_type=hashtag`）通过 HTTP API 直接请求，不需要 Playwright。
+
 ### 搜索去重逻辑
 
 每个搜索配置维护独立的 `SeenRecord` 集合。搜索时将历史已见 `aweme_id` 传入搜索器，搜索器内部实时过滤，不足目标数量则自动翻页，直到累计够目标数量的新内容或 API 无更多数据（最多搜索目标数量 × 5 条）。
@@ -150,9 +152,8 @@ douyin-crawler/
 ├── backend/
 │   ├── crawler/
 │   │   ├── client.py        # HTTP 客户端（请求头、文件下载）
-│   │   ├── search.py        # 关键词 / 话题搜索（持续翻页去重）
-│   │   ├── downloader.py    # 视频 / 图片下载
-│   │   └── sign_server.py   # 签名服务（Playwright 拦截 a_bogus）
+│   │   ├── search.py        # 关键词 / 话题搜索（Playwright 拦截 + 持续翻页去重）
+│   │   └── downloader.py    # 视频 / 图片下载
 │   ├── notify/
 │   │   └── feishu.py        # 飞书机器人推送（卡片消息、图片上传）
 │   ├── routers/             # FastAPI 路由（configs/tasks/logs/cookies/channels/llm）
@@ -172,6 +173,5 @@ douyin-crawler/
 
 - 本项目仅供个人学习和研究使用，请遵守抖音平台相关规定
 - Cookie 失效时任务会显示明确的诊断原因，重新运行 `get_cookie.py` 获取新 Cookie 即可
-- 签名服务（`sign_server.py`）需保持运行，重启后端时无需重启签名服务
 - 飞书机器人需先在开放平台开启 `im:message` 权限并通过审核
 - LLM 视觉过滤需要模型支持多模态（如 GPT-4o、Qwen-VL）
