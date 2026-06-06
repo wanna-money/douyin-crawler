@@ -29,7 +29,7 @@ function parseCron(cron: string): Parsed {
       if (parts.length !== 5) continue
       const [minPart, hrPart, , , dow] = parts
       times.push({ hour: parseInt(hrPart), minute: parseInt(minPart) })
-      if (dow === '1-5') { mode = 'weekday'; days = [1,2,3,4,5] }
+      if (dow === 'mon-fri' || dow === '1-5' || dow === '0-4') { mode = 'weekday'; days = [1,2,3,4,5] }
       else if (dow !== '*') { mode = 'weekly'; days = dow.split(',').map(Number) }
       else { mode = 'daily' }
     }
@@ -54,7 +54,7 @@ function parseCron(cron: string): Parsed {
   const times = hours.map((h, i) => ({ hour: h, minute: minutes[i] ?? minutes[0] ?? 0 }))
 
   if (dow === '*') return { mode: 'daily', times, days: [], interval: 4 }
-  if (dow === '1-5') return { mode: 'weekday', times, days: [1,2,3,4,5], interval: 4 }
+  if (dow === 'mon-fri' || dow === '1-5' || dow === '0-4') return { mode: 'weekday', times, days: [1,2,3,4,5], interval: 4 }
   if (dow.includes(',') || /^\d$/.test(dow)) {
     return { mode: 'weekly', times, days: dow.split(',').map(Number), interval: 4 }
   }
@@ -66,7 +66,7 @@ function toCron(mode: Mode, times: Array<{ hour: number; minute: number }>, days
   if (mode === 'advanced') return raw
 
   const sorted = [...times].sort((a, b) => a.hour !== b.hour ? a.hour - b.hour : a.minute - b.minute)
-  const dowStr = mode === 'daily' ? '*' : mode === 'weekday' ? '1-5' : ([...days].sort().join(',') || '*')
+  const dowStr = mode === 'daily' ? '*' : mode === 'weekday' ? 'mon-fri' : ([...days].sort().join(',') || '*')
 
   // 所有时间点分钟相同，用紧凑语法 "min hour1,hour2 * * dow"
   const allSameMinute = sorted.every(t => t.minute === sorted[0].minute)

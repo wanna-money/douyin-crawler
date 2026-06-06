@@ -9,6 +9,7 @@ export default function Configs() {
   const [editing, setEditing] = useState<SearchConfig | undefined>()
   const [triggering, setTriggering] = useState<number | null>(null)
   const [runningConfigIds, setRunningConfigIds] = useState<Set<number>>(new Set())
+  const [togglingIds, setTogglingIds] = useState<Set<number>>(new Set())
 
   const load = () => configsApi.list().then(setConfigs)
 
@@ -30,6 +31,17 @@ export default function Configs() {
     setTriggering(id)
     try { await configsApi.trigger(id); toast.success('任务已启动') }
     finally { setTriggering(null) }
+  }
+
+  const handleToggleEnabled = async (c: SearchConfig) => {
+    setTogglingIds(prev => new Set(prev).add(c.id))
+    try {
+      await configsApi.update(c.id, { enabled: !c.enabled })
+      setConfigs(prev => prev.map(x => x.id === c.id ? { ...x, enabled: !c.enabled } : x))
+      toast.success(c.enabled ? '已停用定时任务' : '已启用定时任务')
+    } finally {
+      setTogglingIds(prev => { const s = new Set(prev); s.delete(c.id); return s })
+    }
   }
 
   const handleDelete = async (id: number) => {
@@ -67,10 +79,21 @@ export default function Configs() {
             <div className="flex items-start justify-between mb-3">
               <div>
                 <div className="font-bold text-[15px]" style={{ color: 'var(--text-primary)' }}>{c.name}</div>
-                <div className="flex gap-1.5 mt-1.5 flex-wrap">
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${c.enabled ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-400'}`}>
-                    {c.enabled ? '● 已启用' : '○ 已禁用'}
-                  </span>
+                <div className="flex gap-1.5 mt-1.5 flex-wrap items-center">
+                  {/* 启用/禁用开关 */}
+                  <button
+                    type="button"
+                    disabled={togglingIds.has(c.id)}
+                    onClick={() => handleToggleEnabled(c)}
+                    title={c.enabled ? '点击停用' : '点击启用'}
+                    className={`relative inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full font-semibold transition-all cursor-pointer select-none
+                      ${c.enabled ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'}
+                      ${togglingIds.has(c.id) ? 'opacity-50 cursor-not-allowed' : ''}
+                    `}
+                  >
+                    <span className={`inline-block w-1.5 h-1.5 rounded-full ${c.enabled ? 'bg-emerald-500' : 'bg-gray-400'}`} />
+                    {togglingIds.has(c.id) ? '切换中...' : (c.enabled ? '已启用' : '已停用')}
+                  </button>
                   <span className="text-xs px-2 py-0.5 rounded-full font-semibold bg-purple-100 text-purple-700">
                     {c.search_type === 'search' ? '关键词' : '# 话题'}
                   </span>
@@ -89,7 +112,10 @@ export default function Configs() {
                 <span key={label} className="text-xs text-slate-500 bg-white/60 px-2.5 py-1 rounded-lg border border-purple-50">{label}</span>
               ))}
             </div>
-            <div className="text-xs text-indigo-500 bg-indigo-50/60 rounded-lg px-3 py-1.5 font-mono mb-3">{c.cron}</div>
+            <div className={`text-xs rounded-lg px-3 py-1.5 font-mono mb-3 flex items-center gap-2 ${c.enabled ? 'text-indigo-500 bg-indigo-50/60' : 'text-gray-400 bg-gray-50/60 opacity-60'}`}>
+              <span>{c.cron}</span>
+              {!c.enabled && <span className="font-sans font-semibold text-gray-400 opacity-80">已停用</span>}
+            </div>
             <div className="flex gap-2 pt-3 border-t border-purple-50">
               {(() => {
                 const isRunning = runningConfigIds.has(c.id)

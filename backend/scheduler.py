@@ -48,6 +48,9 @@ def sync_jobs():
             if len(parts) != 5:
                 continue
             minute, hour, day, month, day_of_week = parts
+            # 兼容旧格式：1-5 在 APScheduler 中是周二到周六，修正为 mon-fri（周一到周五）
+            if day_of_week == "1-5":
+                day_of_week = "mon-fri"
             trigger = CronTrigger(
                 minute=minute, hour=hour, day=day,
                 month=month, day_of_week=day_of_week,
