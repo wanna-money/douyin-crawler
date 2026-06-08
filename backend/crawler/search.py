@@ -150,12 +150,16 @@ async def _playwright_search(
             # 访问主页预热，再跳搜索页
             await page.goto("https://www.douyin.com/", wait_until="domcontentloaded", timeout=15000)
             await asyncio.sleep(1)
+            import logging as _logging
+            _log = _logging.getLogger(__name__)
+            _log.info("[搜索诊断] 主页加载完成，当前 URL: %s", page.url)
             await page.goto(
                 f"https://www.douyin.com/search/{quote(keyword)}?type=general",
                 wait_until="domcontentloaded",
                 timeout=15000,
             )
             await asyncio.sleep(5)  # 等第一页加载完
+            _log.info("[搜索诊断] 搜索页加载完成，当前 URL: %s，api_hit_count=%d，new_results=%d", page.url, api_hit_count, len(new_results))
 
             # 翻页：通过 JS 滚动到底部触发加载更多
             max_pages = (limit * 5 // 10) + 5
