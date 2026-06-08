@@ -77,7 +77,7 @@ async def main() -> None:
         page = await context.new_page()
 
         print(f"\n正在打开 {LOGIN_URL} ...")
-        await page.goto(LOGIN_URL)
+        await page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=60000)
 
         print("\n📱 请在弹出的浏览器窗口中完成登录（扫码或手机验证码）")
         print("   登录成功后程序会自动继续，无需手动操作\n")
@@ -90,7 +90,7 @@ async def main() -> None:
 
         # 访问搜索页，触发 JS 生成 msToken
         print("正在访问搜索页以获取 msToken ...")
-        await page.goto("https://www.douyin.com/search/美食?type=general")
+        await page.goto("https://www.douyin.com/search/美食?type=general", wait_until="domcontentloaded", timeout=60000)
         await asyncio.sleep(3)
 
         # 等待 msToken 写入 cookie

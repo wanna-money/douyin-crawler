@@ -10,6 +10,8 @@ _NIL_REASONS = {
     "invalid_app": "请求参数不合法（缺少设备/浏览器参数）",
     "verify_check": "需要人机验证（Cookie 已失效，请重新获取）",
     "no_result": "该关键词暂无搜索结果",
+    "service_empty": "服务端拒绝返回结果（Cookie 已失效或被风控，请重新获取 Cookie）",
+    "search_service_resp_nil": "服务端拒绝返回结果（Cookie 已失效或被风控，请重新获取 Cookie）",
 }
 
 
