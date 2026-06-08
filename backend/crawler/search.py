@@ -158,18 +158,26 @@ async def _playwright_search(
                 wait_until="domcontentloaded",
                 timeout=15000,
             )
-            await asyncio.sleep(5)  # 等第一页加载完
+            # 等待第一个搜索 API 请求被触发，最多等 15 秒
+            for _ in range(30):
+                await asyncio.sleep(0.5)
+                if api_hit_count > 0 or nil_reason:
+                    break
             _log.info("[搜索诊断] 搜索页加载完成，当前 URL: %s，api_hit_count=%d，new_results=%d", page.url, api_hit_count, len(new_results))
 
-            # 翻页：通过 JS 滚动到底部触发加载更多
-            max_pages = (limit * 5 // 10) + 5
+            # 翻页：通过 JS 滚动到底部触发加载更多，限制最多 5 次避免触发风控
+            max_pages = min((limit * 5 // 10) + 5, 5)
             consecutive_empty = 0
             for _ in range(max_pages):
                 if len(new_results) >= limit or not has_more:
                     break
                 prev_count = len(new_results)
                 await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                await asyncio.sleep(3)
+                # 等待新内容加载，最多 6 秒
+                for _ in range(12):
+                    await asyncio.sleep(0.5)
+                    if len(new_results) > prev_count:
+                        break
                 if len(new_results) == prev_count:
                     consecutive_empty += 1
                     if consecutive_empty >= 3:
