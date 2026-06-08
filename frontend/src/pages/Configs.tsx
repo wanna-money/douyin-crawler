@@ -55,7 +55,7 @@ export default function Configs() {
   const isOpen = showForm || !!editing
 
   return (
-    <div className="p-8">
+    <div className="p-4 md:p-8">
       {/* 页头 */}
       <div className="flex items-center justify-between mb-1">
         <h2 className="text-2xl font-extrabold" style={{ color: 'var(--text-primary)' }}>搜索配置</h2>
@@ -153,7 +153,7 @@ export default function Configs() {
               backdropFilter: 'blur(20px)',
             }}
           >
-            <div className="sticky top-0 z-10 flex items-center justify-between px-8 py-5 border-b border-purple-50 rounded-t-2xl"
+            <div className="sticky top-0 z-10 flex items-center justify-between px-4 md:px-8 py-4 md:py-5 border-b border-purple-50 rounded-t-2xl"
               style={{ background: 'rgba(255,255,255,0.95)', backdropFilter: 'blur(10px)' }}>
               <div>
                 <h3 className="text-lg font-extrabold" style={{ color: 'var(--text-primary)' }}>
@@ -165,7 +165,7 @@ export default function Configs() {
               </div>
               <button onClick={closeForm} className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-purple-50 text-slate-400 hover:text-indigo-500 transition-colors text-lg">✕</button>
             </div>
-            <div className="px-8 py-6">
+            <div className="px-4 md:px-8 py-5 md:py-6">
               <ConfigForm
                 initial={editing}
                 onSaved={() => { closeForm(); load() }}

@@ -76,7 +76,7 @@ export default function Channels() {
   const labelCls = 'block text-sm font-semibold text-slate-600 mb-1'
 
   return (
-    <div className="p-8">
+    <div className="p-4 md:p-8">
       <h2 className="text-2xl font-extrabold mb-1" style={{ color: 'var(--text-primary)' }}>通知渠道</h2>
       <p className="text-sm text-slate-400 mb-5">配置飞书自建应用机器人，采集完成后自动推送卡片消息到群聊</p>
 

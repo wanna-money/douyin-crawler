@@ -73,7 +73,7 @@ export default function Logs() {
   const inputCls = 'border border-purple-100 rounded-xl px-3 py-2 text-sm bg-white/70 focus:outline-none focus:border-indigo-400'
 
   return (
-    <div className="p-8">
+    <div className="p-4 md:p-8">
       <div className="flex items-center justify-between mb-1">
         <h2 className="text-2xl font-extrabold" style={{ color: 'var(--text-primary)' }}>采集日志</h2>
         {dates.length > 0 && (

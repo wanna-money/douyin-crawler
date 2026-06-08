@@ -60,7 +60,7 @@ export default function LLMConfigPage() {
   const inputCls = 'w-full border border-purple-100 rounded-xl px-3 py-2 text-sm bg-white/70 focus:outline-none focus:border-indigo-400'
 
   return (
-    <div className="p-8">
+    <div className="p-4 md:p-8">
       <h2 className="text-2xl font-extrabold mb-1" style={{ color: 'var(--text-primary)' }}>
         LLM 配置
       </h2>

@@ -38,7 +38,7 @@ export default function Settings() {
   const filtered = settings.filter(s => s.key === 'download_dir')
 
   return (
-    <div className="p-8">
+    <div className="p-4 md:p-8">
       <h2 className="text-2xl font-extrabold mb-1" style={{ color: 'var(--text-primary)' }}>系统设置</h2>
       <p className="text-sm text-slate-400 mb-8">Cookie 和通知渠道请在对应页面管理</p>
 

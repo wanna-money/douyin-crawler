@@ -168,10 +168,10 @@ export default function Tasks() {
   const inputCls = 'text-xs border border-purple-100 rounded-xl px-3 py-1.5 bg-white/70 focus:outline-none focus:border-indigo-400 w-32'
 
   return (
-    <div className="p-8">
-      <div className="flex items-center justify-between mb-1">
+    <div className="p-4 md:p-8">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-1 gap-2">
         <h2 className="text-2xl font-extrabold" style={{ color: 'var(--text-primary)' }}>任务记录</h2>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <span className="text-xs text-slate-400 bg-white/60 px-3 py-1.5 rounded-full border border-purple-50">每 5 秒自动刷新</span>
           <button
             onClick={() => { setRefreshing(true); fetchAll().finally(() => setRefreshing(false)) }}
@@ -268,86 +268,142 @@ export default function Tasks() {
             {filtered.length === 0 ? (
               <div className="py-14 text-center text-slate-400 text-sm">无匹配记录</div>
             ) : (
-              <table className="w-full text-sm">
-                <thead>
-                  <tr style={{ borderBottom: '1px solid rgba(99,102,241,0.08)', background: 'rgba(99,102,241,0.03)' }}>
-                    {['ID', '配置', '状态', '新内容', '下载', '推送', '备注', '时间', '操作'].map(h => (
-                      <th key={h} className="px-4 py-3 text-left text-xs font-bold text-purple-400 uppercase tracking-wide">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
+              <>
+                {/* 移动端卡片列表（md 以下） */}
+                <div className="md:hidden divide-y divide-purple-50">
                   {filtered.map(t => {
                     const s = STATUS_MAP[t.status] ?? { label: t.status, cls: 'bg-gray-100', dot: '·' }
                     const configName = configMap[t.config_id] ?? `#${t.config_id}`
                     const isExpanded = expandedId === t.id
+                    const noteText = t.status === 'failed' ? (t.error || t.note || '任务失败') : t.note
                     return (
-                      <>
-                        <tr
-                          key={t.id}
-                          style={{ borderBottom: isExpanded ? 'none' : '1px solid rgba(99,102,241,0.05)' }}
-                          className={`transition-colors ${isExpanded ? 'bg-indigo-50/30' : 'hover:bg-white/40'}`}
-                        >
-                          <td className="px-4 py-3 text-purple-300 text-xs font-mono">#{t.id}</td>
-                          <td className="px-4 py-3">
-                            <span className="text-xs font-semibold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-lg truncate block">{configName}</span>
-                          </td>
-                          <td className="px-4 py-3">
-                            <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${s.cls}`}>{s.dot} {s.label}</span>
-                          </td>
-                          <td className="px-4 py-3 text-slate-600 tabular-nums whitespace-nowrap">{t.total}</td>
-                          <td className="px-4 py-3 tabular-nums whitespace-nowrap">
-                            <span className={t.downloaded < t.total && t.total > 0 ? 'text-red-400' : 'text-slate-600'}>
-                              {t.downloaded}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 text-slate-600 tabular-nums whitespace-nowrap">{t.sent}</td>
-                          <td className="px-4 py-3 max-w-xs">
-                            {(t.note || t.status === 'failed') ? (
-                              <span
-                                className={`text-xs truncate block ${t.status === 'failed' ? 'text-red-400' : 'text-amber-600'}`}
-                                title={t.status === 'failed' ? (t.error || t.note || '任务失败') : t.note}
-                              >
-                                {t.status === 'failed' ? (t.error || t.note || '任务失败') : t.note}
-                              </span>
-                            ) : (
-                              <span className="text-xs text-slate-300">—</span>
-                            )}
-                          </td>
-                          <td className="px-4 py-3 text-slate-400 text-xs whitespace-nowrap">{new Date(t.created_at).toLocaleString('zh-CN')}</td>
-                          <td className="px-4 py-3">
-                            <div className="flex items-center gap-1.5">
-                              <button
-                                onClick={() => toggleDetail(t.id)}
-                                className={`text-xs px-2 py-1 rounded-lg border transition-colors ${isExpanded
-                                  ? 'bg-indigo-100 text-indigo-600 border-indigo-200'
-                                  : 'bg-indigo-50 text-indigo-500 border-indigo-100 hover:bg-indigo-100'}`}
-                              >
-                                {isExpanded ? '收起' : '详情'}
-                              </button>
-                              <button
-                                onClick={() => handleDelete(t.id)}
-                                className="text-xs px-2 py-1 rounded-lg bg-red-50 text-red-400 border border-red-100 hover:bg-red-100 transition-colors"
-                              >
-                                删除
-                              </button>
+                      <div key={t.id}>
+                        <div className={`px-4 py-3 transition-colors ${isExpanded ? 'bg-indigo-50/30' : ''}`}>
+                          {/* 第一行：ID + 配置名 + 状态 */}
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className="text-purple-300 text-xs font-mono shrink-0">#{t.id}</span>
+                            <span className="text-xs font-semibold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-lg truncate flex-1">{configName}</span>
+                            <span className={`text-xs px-2 py-0.5 rounded-full font-semibold shrink-0 ${s.cls}`}>{s.dot} {s.label}</span>
+                          </div>
+                          {/* 第二行：数量统计 */}
+                          <div className="flex items-center gap-3 mb-2 text-xs text-slate-500">
+                            <span>新内容 <strong className="text-slate-700">{t.total}</strong></span>
+                            <span>下载 <strong className={t.downloaded < t.total && t.total > 0 ? 'text-red-400' : 'text-slate-700'}>{t.downloaded}</strong></span>
+                            <span>推送 <strong className="text-slate-700">{t.sent}</strong></span>
+                            <span className="ml-auto text-slate-400">{new Date(t.created_at).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
+                          </div>
+                          {/* 第三行：备注（有时才显示） */}
+                          {noteText && (
+                            <div className={`text-xs mb-2 truncate ${t.status === 'failed' ? 'text-red-400' : 'text-amber-600'}`} title={noteText}>
+                              {noteText}
                             </div>
-                          </td>
-                        </tr>
-                        {isExpanded && (
-                          <tr key={`detail-${t.id}`}>
-                            <td colSpan={9} style={{ padding: 0, maxWidth: 0 }}>
-                              <div style={{ width: '100%', overflow: 'hidden' }}>
-                                <DetailPanel task={t} onClose={() => setExpandedId(null)} />
+                          )}
+                          {/* 操作按钮 */}
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => toggleDetail(t.id)}
+                              className={`text-xs px-3 py-1 rounded-lg border transition-colors ${isExpanded
+                                ? 'bg-indigo-100 text-indigo-600 border-indigo-200'
+                                : 'bg-indigo-50 text-indigo-500 border-indigo-100'}`}
+                            >
+                              {isExpanded ? '收起' : '详情'}
+                            </button>
+                            <button
+                              onClick={() => handleDelete(t.id)}
+                              className="text-xs px-3 py-1 rounded-lg bg-red-50 text-red-400 border border-red-100"
+                            >
+                              删除
+                            </button>
+                          </div>
+                        </div>
+                        {isExpanded && <DetailPanel task={t} onClose={() => setExpandedId(null)} />}
+                      </div>
+                    )
+                  })}
+                </div>
+
+                {/* PC 端表格（md 以上） */}
+                <table className="hidden md:table w-full text-sm">
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid rgba(99,102,241,0.08)', background: 'rgba(99,102,241,0.03)' }}>
+                      {['ID', '配置', '状态', '新内容', '下载', '推送', '备注', '时间', '操作'].map(h => (
+                        <th key={h} className="px-4 py-3 text-left text-xs font-bold text-purple-400 uppercase tracking-wide">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filtered.map(t => {
+                      const s = STATUS_MAP[t.status] ?? { label: t.status, cls: 'bg-gray-100', dot: '·' }
+                      const configName = configMap[t.config_id] ?? `#${t.config_id}`
+                      const isExpanded = expandedId === t.id
+                      return (
+                        <>
+                          <tr
+                            key={t.id}
+                            style={{ borderBottom: isExpanded ? 'none' : '1px solid rgba(99,102,241,0.05)' }}
+                            className={`transition-colors ${isExpanded ? 'bg-indigo-50/30' : 'hover:bg-white/40'}`}
+                          >
+                            <td className="px-4 py-3 text-purple-300 text-xs font-mono">#{t.id}</td>
+                            <td className="px-4 py-3">
+                              <span className="text-xs font-semibold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-lg truncate block">{configName}</span>
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${s.cls}`}>{s.dot} {s.label}</span>
+                            </td>
+                            <td className="px-4 py-3 text-slate-600 tabular-nums whitespace-nowrap">{t.total}</td>
+                            <td className="px-4 py-3 tabular-nums whitespace-nowrap">
+                              <span className={t.downloaded < t.total && t.total > 0 ? 'text-red-400' : 'text-slate-600'}>
+                                {t.downloaded}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-slate-600 tabular-nums whitespace-nowrap">{t.sent}</td>
+                            <td className="px-4 py-3 max-w-xs">
+                              {(t.note || t.status === 'failed') ? (
+                                <span
+                                  className={`text-xs truncate block ${t.status === 'failed' ? 'text-red-400' : 'text-amber-600'}`}
+                                  title={t.status === 'failed' ? (t.error || t.note || '任务失败') : t.note}
+                                >
+                                  {t.status === 'failed' ? (t.error || t.note || '任务失败') : t.note}
+                                </span>
+                              ) : (
+                                <span className="text-xs text-slate-300">—</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-slate-400 text-xs whitespace-nowrap">{new Date(t.created_at).toLocaleString('zh-CN')}</td>
+                            <td className="px-4 py-3">
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  onClick={() => toggleDetail(t.id)}
+                                  className={`text-xs px-2 py-1 rounded-lg border transition-colors ${isExpanded
+                                    ? 'bg-indigo-100 text-indigo-600 border-indigo-200'
+                                    : 'bg-indigo-50 text-indigo-500 border-indigo-100 hover:bg-indigo-100'}`}
+                                >
+                                  {isExpanded ? '收起' : '详情'}
+                                </button>
+                                <button
+                                  onClick={() => handleDelete(t.id)}
+                                  className="text-xs px-2 py-1 rounded-lg bg-red-50 text-red-400 border border-red-100 hover:bg-red-100 transition-colors"
+                                >
+                                  删除
+                                </button>
                               </div>
                             </td>
                           </tr>
-                        )}
-                      </>
-                    )
-                  })}
-                </tbody>
-              </table>
+                          {isExpanded && (
+                            <tr key={`detail-${t.id}`}>
+                              <td colSpan={9} style={{ padding: 0, maxWidth: 0 }}>
+                                <div style={{ width: '100%', overflow: 'hidden' }}>
+                                  <DetailPanel task={t} onClose={() => setExpandedId(null)} />
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </>
             )}
           </div>
         </>
