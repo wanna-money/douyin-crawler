@@ -33,6 +33,7 @@ async def _playwright_search(
     pages_done = asyncio.Event()
     has_more = True
     page_ref = {}   # 用 dict 传递 page 引用（避免闭包问题）
+    api_hit_count = 0  # 记录搜索 API 被拦截的次数
 
     def _parse_aweme(aweme: dict) -> dict | None:
         aweme_id = aweme.get("aweme_id", "")
@@ -66,7 +67,7 @@ async def _playwright_search(
         return None
 
     async def _run():
-        nonlocal has_more, nil_reason
+        nonlocal has_more, nil_reason, api_hit_count
 
         async with async_playwright() as p:
             browser = await p.chromium.launch(
@@ -101,10 +102,11 @@ async def _playwright_search(
 
             # 只拦截搜索 API，其他请求（图片/JS/CSS等）直接放行
             async def on_route(route):
-                nonlocal has_more, nil_reason
+                nonlocal has_more, nil_reason, api_hit_count
                 if "general/search/single" not in route.request.url:
                     await route.continue_()
                     return
+                api_hit_count += 1
                 try:
                     resp = await route.fetch()
                     body = await resp.json()
@@ -122,7 +124,9 @@ async def _playwright_search(
                         item_key = nil.get("search_nil_item", "") or nil.get("search_nil_type", "")
                         nil_reason = _NIL_REASONS.get(item_key, f"搜索为空：{nil.get('search_nil_type')}/{nil.get('search_nil_item')}")
                     await route.fulfill(response=resp)
-                except Exception:
+                except Exception as e:
+                    import logging as _logging
+                    _logging.getLogger(__name__).warning("拦截搜索 API 异常: %s", e)
                     try:
                         await route.continue_()
                     except Exception:
@@ -157,6 +161,9 @@ async def _playwright_search(
                     consecutive_empty = 0
 
             await browser.close()
+
+        if api_hit_count == 0 and not nil_reason:
+            nil_reason = "搜索 API 未被触发（Cookie 已失效或页面加载失败，请重新获取 Cookie）"
 
     await _run()
     return new_results[:limit], nil_reason
