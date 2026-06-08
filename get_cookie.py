@@ -90,7 +90,11 @@ async def main() -> None:
 
         # 访问搜索页，触发 JS 生成 msToken
         print("正在访问搜索页以获取 msToken ...")
-        await page.goto("https://www.douyin.com/search/美食?type=general", wait_until="domcontentloaded", timeout=60000)
+        try:
+            await page.goto("https://www.douyin.com/search/美食?type=general", wait_until="load", timeout=60000)
+        except Exception:
+            # 抖音登录后可能触发内部重定向导致 ERR_ABORTED，忽略并继续
+            pass
         await asyncio.sleep(3)
 
         # 等待 msToken 写入 cookie
