@@ -159,16 +159,6 @@ async def run_task(config_id: int, engine=None) -> int:
             )
             items = new_items  # 此时 items 即为去重后的新内容
 
-        # 立即将本次搜索到的新内容写入 SeenRecord，无论后续下载是否成功
-        if new_items:
-            with Session(engine) as session:
-                for item in new_items:
-                    session.add(SeenRecord(
-                        aweme_id=item["aweme_id"],
-                        config_id=config_id,
-                    ))
-                session.commit()
-
         # LLM 相关性过滤
         if config_llm_filter_enabled:
             llm_cfg = _get_default_llm(engine)
@@ -243,6 +233,24 @@ async def run_task(config_id: int, engine=None) -> int:
                         select(DownloadRecord).where(DownloadRecord.aweme_id == item["aweme_id"])
                     ).all():
                         r.sent = True
+                session.commit()
+            # 推送成功后才写入 SeenRecord，避免推送失败导致内容永久丢失
+            if sent > 0:
+                with Session(engine) as session:
+                    for item in downloaded_items:
+                        session.add(SeenRecord(
+                            aweme_id=str(item["aweme_id"]),
+                            config_id=config_id,
+                        ))
+                    session.commit()
+        elif downloaded_items:
+            # 无推送渠道时，下载成功即视为已处理，写入 SeenRecord
+            with Session(engine) as session:
+                for item in downloaded_items:
+                    session.add(SeenRecord(
+                        aweme_id=str(item["aweme_id"]),
+                        config_id=config_id,
+                    ))
                 session.commit()
 
         with Session(engine) as session:
