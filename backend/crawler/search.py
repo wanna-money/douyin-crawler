@@ -103,13 +103,26 @@ async def _playwright_search(
             # 只拦截搜索 API，其他请求（图片/JS/CSS等）直接放行
             async def on_route(route):
                 nonlocal has_more, nil_reason, api_hit_count
-                if "general/search/single" not in route.request.url:
+                url = route.request.url
+                if "general/search/single" not in url and "general/search/stream" not in url:
                     await route.continue_()
                     return
                 api_hit_count += 1
                 try:
                     resp = await route.fetch()
-                    body = await resp.json()
+                    raw = await resp.body()
+                    # stream 接口返回 chunked 格式（十六进制长度\r\n数据\r\n），需提取 JSON 部分
+                    try:
+                        body = await resp.json()
+                    except Exception:
+                        text = raw.decode("utf-8", errors="ignore")
+                        # 跳过开头的 chunked 长度行，找到第一个 { 开始的 JSON
+                        idx = text.find("{")
+                        if idx != -1:
+                            import json as _json
+                            body = _json.loads(text[idx:])
+                        else:
+                            body = {}
                     for item in (body.get("data") or []):
                         aweme = item.get("aweme_info")
                         if not aweme:
