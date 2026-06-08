@@ -141,13 +141,20 @@ async def _playwright_search(
             await asyncio.sleep(5)  # 等第一页加载完
 
             # 翻页：通过 JS 滚动到底部触发加载更多
-            max_pages = (limit // 10) + 3
+            max_pages = (limit * 5 // 10) + 5
+            consecutive_empty = 0
             for _ in range(max_pages):
                 if len(new_results) >= limit or not has_more:
                     break
-                # 滚动到底部触发下一页
+                prev_count = len(new_results)
                 await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
                 await asyncio.sleep(3)
+                if len(new_results) == prev_count:
+                    consecutive_empty += 1
+                    if consecutive_empty >= 3:
+                        break
+                else:
+                    consecutive_empty = 0
 
             await browser.close()
 
