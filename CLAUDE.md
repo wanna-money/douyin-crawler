@@ -37,14 +37,18 @@ HTTPS_PROXY=http://127.0.0.1:7890 uv run python -m backend.main
 `run_task(config_id)` 是核心入口，被定时调度器和 `POST /api/tasks/trigger/{id}` 共同调用。流程：
 
 1. 读 `SearchConfig` + 默认 Cookie + 通知渠道
-2. 启动持久签名服务进程（`backend/crawler/sign_server.py`，端口 18690，进程级单例，重启后端无需重启）
-3. `DouyinSearcher` 通过 Playwright 无头 Chromium 拦截抖音搜索响应取数据（绕过 `a_bogus` 签名）
-4. 去重：对比 `SeenRecord` 表，不足目标数自动翻页（最多搜索目标数 × 5 条）
-5. 可选 LLM 相关性过滤（`backend/llm.py`，OpenAI 兼容接口）
-6. 下载图片/视频到 `downloads/`（路径可在系统设置修改）
-7. 飞书卡片推送（`backend/notify/feishu.py`，自建应用机器人）
+2. `DouyinSearcher` 通过 Playwright 无头 Chromium 拦截抖音搜索响应取数据（完全绕过 `a_bogus` 签名，不再使用 sign_server）
+3. 去重：对比 `SeenRecord` 表，不足目标数自动翻页（最多翻 5 页避免触发风控）
+4. 可选 LLM 相关性过滤（`backend/llm.py`，OpenAI 兼容接口）
+5. 下载图片/视频封面到 `downloads/`（路径可在系统设置修改）；视频只下载封面图，不下载视频本体
+6. 飞书卡片推送（`backend/notify/feishu.py`，`FeishuBotNotifier`，自建应用机器人）
+7. **推送成功后**才写入 `SeenRecord`，避免推送失败导致内容永久丢失
 8. 写 JSONL 采集日志（`downloads/logs/YYYY-MM-DD.jsonl`）
 9. 写 `TaskRecord` / `DownloadRecord`
+
+### 搜索实现（`backend/crawler/search.py`）
+
+`DouyinSearcher.search_keyword()` 在独立线程的新 event loop 里运行 Playwright，不阻塞 uvicorn 主 loop。拦截 `general/search/single` 和 `general/search/stream` 两种接口，支持 chunked 响应格式解析。话题搜索（`search_hashtag`）使用 HTTP API 直接请求，不走 Playwright。
 
 ### Cron 调度（`backend/scheduler.py`）
 
@@ -60,6 +64,14 @@ HTTPS_PROXY=http://127.0.0.1:7890 uv run python -m backend.main
 
 React 18 + TypeScript + TailwindCSS v4 + Vite。路由为页面级组件（`src/pages/`），与后端通信全部通过 `src/api/client.ts` 的 axios 封装。`SchedulePicker` 组件负责将 UI 模式（daily/weekday/weekly/interval/advanced）转换为 cron 字符串。
 
-### 签名服务进程
+### 飞书通知渠道（`backend/notify/feishu.py`）
 
-`backend/crawler/sign_server.py` 是独立 HTTP 服务（端口 18690），由 `task_runner.py` 在首次任务时惰性启动并常驻。它维护一个持久 Playwright 页面，每次签名请求只需约 3s（冷启动约 15s）。后端重启不影响已运行的签名服务进程。
+`FeishuBotNotifier`（别名 `FeishuNotifier`）使用自建飞书应用机器人（app_id + app_secret + chat_id），通过 lark-oapi SDK 构建 Schema 2.0 卡片消息。`NotifyChannel.channel_type` 目前固定为 `feishu_bot`。tenant_access_token 有内存缓存（过期前 6 分钟刷新）。
+
+### 测试结构
+
+测试使用内存 SQLite 引擎（`get_engine(":memory:")`）+ `create_app(engine=engine)` 注入，不依赖真实数据库。Playwright/Cookie/LLM/飞书相关测试均 mock 外部调用。`pyproject.toml` 配置 `asyncio_mode = "auto"`，异步测试直接用 `async def test_*`。
+
+### 签名服务（遗留）
+
+`backend/crawler/sign_server.py` 是早期独立 HTTP 签名服务（端口 18690），当前主流程已改为 Playwright 直接拦截，不再依赖此服务。代码保留供参考，`.pids/sign_server.pid` 为其进程 PID 文件。
