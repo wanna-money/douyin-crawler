@@ -29,75 +29,102 @@ async def _playwright_resolve_uid(douyin_id: str, cookie: str) -> str | None:
     """
     通过抖音号搜索用户，拦截 discover/search 接口，返回第一个匹配用户的 sec_uid。
     抖音号精确匹配时第一条即为目标用户。
+    headless 无结果时在本地环境自动切换有头浏览器重试。
     """
     from playwright.async_api import async_playwright
 
     sec_uid: str | None = None
 
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(
-            headless=True,
-            args=["--no-sandbox", "--disable-blink-features=AutomationControlled",
-                  "--disable-dev-shm-usage", "--disable-gpu"],
-        )
-        context = await browser.new_context(
-            user_agent=(
-                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36"
+    async def _run_launch(use_headless: bool):
+        nonlocal sec_uid
+
+        async with async_playwright() as p:
+            launch_args = ["--no-sandbox", "--disable-blink-features=AutomationControlled"]
+            if use_headless:
+                launch_args += ["--disable-dev-shm-usage", "--disable-gpu"]
+            browser = await p.chromium.launch(headless=use_headless, args=launch_args)
+            context = await browser.new_context(
+                user_agent=(
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36"
+                )
             )
-        )
-        for part in cookie.split(";"):
-            part = part.strip()
-            if "=" in part:
-                name, _, val = part.partition("=")
-                try:
-                    await context.add_cookies([{
-                        "name": name.strip(), "value": val.strip(),
-                        "domain": ".douyin.com", "path": "/",
-                    }])
-                except Exception:
-                    pass
+            for part in cookie.split(";"):
+                part = part.strip()
+                if "=" in part:
+                    name, _, val = part.partition("=")
+                    try:
+                        await context.add_cookies([{
+                            "name": name.strip(), "value": val.strip(),
+                            "domain": ".douyin.com", "path": "/",
+                        }])
+                    except Exception:
+                        pass
 
-        page = await context.new_page()
+            page = await context.new_page()
 
-        async def on_route(route):
-            nonlocal sec_uid
-            url = route.request.url
-            if "aweme/v1/web/discover/search" not in url or "aweme_user_web" not in url:
-                await route.continue_()
-                return
-            # 已获取到结果则不再覆盖
-            if sec_uid:
-                await route.fulfill(response=await route.fetch())
-                return
-            try:
-                resp = await route.fetch()
-                body = await resp.json()
-                user_list = body.get("user_list") or []
-                if user_list:
-                    user_info = user_list[0].get("user_info") or {}
-                    sec_uid = user_info.get("sec_uid") or user_info.get("sec_user_id")
-                await route.fulfill(response=resp)
-            except Exception as e:
-                logger.warning("拦截用户搜索 API 异常: %s", e)
-                try:
+            async def on_route(route):
+                nonlocal sec_uid
+                url = route.request.url
+                if "aweme/v1/web/discover/search" not in url or "aweme_user_web" not in url:
                     await route.continue_()
-                except Exception:
-                    pass
+                    return
+                if sec_uid:
+                    await route.fulfill(response=await route.fetch())
+                    return
+                try:
+                    resp = await route.fetch()
+                    # 响应可能是 brotli/gzip 压缩，先尝试 json()，失败则手动解压
+                    try:
+                        body = await resp.json()
+                    except Exception:
+                        raw = await resp.body()
+                        try:
+                            import brotli
+                            raw = brotli.decompress(raw)
+                        except Exception:
+                            pass
+                        try:
+                            import gzip
+                            raw = gzip.decompress(raw)
+                        except Exception:
+                            pass
+                        try:
+                            body = _json.loads(raw)
+                        except Exception:
+                            body = {}
+                    user_list = body.get("user_list") or []
+                    if user_list:
+                        user_info = user_list[0].get("user_info") or {}
+                        sec_uid = user_info.get("sec_uid") or user_info.get("sec_user_id")
+                    await route.fulfill(response=resp)
+                except Exception as e:
+                    logger.warning("拦截用户搜索 API 异常: %s", e)
+                    try:
+                        await route.continue_()
+                    except Exception:
+                        pass
 
-        await page.route("**/*", on_route)
-        await page.goto("https://www.douyin.com/", wait_until="domcontentloaded", timeout=15000)
-        await asyncio.sleep(1)
-        await page.goto(
-            f"https://www.douyin.com/search/{quote(douyin_id)}?type=user",
-            wait_until="domcontentloaded",
-            timeout=15000,
-        )
-        for _ in range(20):
-            await asyncio.sleep(0.5)
-            if sec_uid:
-                break
-        await browser.close()
+            await page.route("**/*", on_route)
+            await page.goto("https://www.douyin.com/", wait_until="domcontentloaded", timeout=15000)
+            await asyncio.sleep(1)
+            await page.goto(
+                f"https://www.douyin.com/search/{quote(douyin_id)}?type=user",
+                wait_until="domcontentloaded",
+                timeout=15000,
+            )
+            wait_rounds = 20 if use_headless else 40
+            for _ in range(wait_rounds):
+                await asyncio.sleep(0.5)
+                if sec_uid:
+                    break
+            await browser.close()
+
+    await _run_launch(True)
+
+    if not sec_uid and _is_local():
+        logger.warning("[抖音号解析] headless 未获取到 sec_uid，切换有头浏览器重试: %s", douyin_id)
+        await _run_launch(False)
 
     logger.info("[抖音号解析] %s → sec_uid=%s", douyin_id, sec_uid)
     return sec_uid
