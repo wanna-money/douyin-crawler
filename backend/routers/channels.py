@@ -70,6 +70,7 @@ async def test_channel(channel_id: int, session: Session = Depends(get_session))
     ch = session.get(NotifyChannel, channel_id)
     if not ch:
         raise HTTPException(status_code=404, detail="Not found")
+    # feishu_bot
     if not ch.app_id or not ch.app_secret or not ch.chat_id:
         return {"ok": False, "error": "app_id / app_secret / chat_id 未填写"}
     try:
@@ -85,7 +86,6 @@ async def test_channel(channel_id: int, session: Session = Depends(get_session))
         import httpx
         err_msg = str(e)
         if not err_msg:
-            # httpx 网络异常 str() 为空，改用类型名
             err_type = type(e).__name__
             if "Connect" in err_type:
                 err_msg = "无法连接飞书服务器，请检查网络或代理设置（ConnectError）"

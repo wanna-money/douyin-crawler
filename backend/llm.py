@@ -61,15 +61,7 @@ async def check_relevance(
     - 无封面图时：降级为纯文字描述判断
     - 网络异常或解析失败时默认返回 True（放行），避免误过滤
     """
-    if cover_url:
-        messages = _build_vision_messages(keyword, cover_url)
-        mode = "vision"
-    else:
-        prompt = build_prompt(prompt_template, keyword=keyword, desc=desc, author=author)
-        messages = _build_text_messages(prompt)
-        mode = "text"
-
-    try:
+    async def _call(messages: list, mode: str) -> bool:
         async with httpx.AsyncClient(timeout=timeout) as client:
             resp = await client.post(
                 f"{base_url.rstrip('/')}/chat/completions",
@@ -87,8 +79,19 @@ async def check_relevance(
             resp.raise_for_status()
             answer = resp.json()["choices"][0]["message"]["content"].strip()
             result = _is_yes(answer)
-            logger.debug("LLM[%s] keyword=%s cover=%s -> %s (%s)", mode, keyword, bool(cover_url), result, answer)
+            logger.debug("LLM[%s] keyword=%s -> %s (%s)", mode, keyword, result, answer)
             return result
+
+    # 有封面图时优先走 vision，失败则降级为文字
+    if cover_url:
+        try:
+            return await _call(_build_vision_messages(keyword, cover_url), "vision")
+        except Exception as exc:
+            logger.warning("LLM vision 失败，降级为文字判断: %s", exc)
+
+    prompt = build_prompt(prompt_template, keyword=keyword, desc=desc, author=author)
+    try:
+        return await _call(_build_text_messages(prompt), "text")
     except Exception as exc:
-        logger.warning("LLM 相关性检测失败，默认放行 [%s]: %s", mode, exc)
+        logger.warning("LLM 相关性检测失败，默认放行 [text]: %s", exc)
         return True

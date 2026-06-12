@@ -31,7 +31,7 @@ class CookieAccount(SQLModel, table=True):
 class NotifyChannel(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str
-    channel_type: str = "feishu_bot"   # 改默认为 feishu_bot
+    channel_type: str = "feishu_bot"   # feishu_bot
     app_id: str = ""
     app_secret: str = ""
     chat_id: str = ""                  # 群的 open_chat_id，如 oc_xxxxxx

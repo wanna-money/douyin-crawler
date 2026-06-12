@@ -54,6 +54,7 @@ export interface NotifyChannel {
   id: number
   name: string
   channel_type: string
+  // 飞书字段
   app_id: string
   app_secret: string
   chat_id: string

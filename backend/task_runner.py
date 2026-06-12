@@ -67,19 +67,31 @@ def _get_webhook(config_channel_id: int | None, config_feishu_webhook: str, engi
 def _get_channel_config(config_channel_id: int | None, config_feishu_webhook: str, engine) -> dict | None:
     """返回渠道配置字典，优先用绑定渠道，其次用默认渠道"""
     with Session(engine) as session:
+        def _ch_to_dict(ch) -> dict:
+            return {
+                "channel_type": ch.channel_type,
+                "name": ch.name,
+                "app_id": ch.app_id,
+                "app_secret": ch.app_secret,
+                "chat_id": ch.chat_id,
+            }
         if config_channel_id:
             ch = session.get(NotifyChannel, config_channel_id)
             if ch:
-                return {"app_id": ch.app_id, "app_secret": ch.app_secret, "chat_id": ch.chat_id, "name": ch.name}
+                return _ch_to_dict(ch)
         ch = session.exec(
             select(NotifyChannel).where(NotifyChannel.is_default == True)
         ).first()
         if ch:
-            return {"app_id": ch.app_id, "app_secret": ch.app_secret, "chat_id": ch.chat_id, "name": ch.name}
+            return _ch_to_dict(ch)
         ch = session.exec(select(NotifyChannel)).first()
         if ch:
-            return {"app_id": ch.app_id, "app_secret": ch.app_secret, "chat_id": ch.chat_id, "name": ch.name}
+            return _ch_to_dict(ch)
         return None
+
+
+def _channel_cfg_is_valid(cfg: dict) -> bool:
+    return bool(cfg.get("app_id") and cfg.get("chat_id"))
 
 
 def _get_default_llm(engine) -> dict | None:
@@ -269,6 +281,7 @@ async def run_task(config_id: int, engine=None) -> int:
                     "author": item.get("author", ""),
                     "desc": item.get("desc", "")[:200],
                     "video_url": item.get("video_url"),
+                    "cover_url": item.get("cover_url"),
                     "image_urls": item.get("image_urls", []),
                     "downloaded": error_msg is None,
                     "file_paths": item.get("file_paths", []),
@@ -279,20 +292,22 @@ async def run_task(config_id: int, engine=None) -> int:
                 logger.warning("日志写入失败 aweme_id=%s: %s", item.get("aweme_id"), log_exc)
 
         sent = 0
-        if channel_cfg and channel_cfg.get("app_id") and channel_cfg.get("chat_id") and downloaded_items:
-            notifier = FeishuNotifier(
-                app_id=channel_cfg["app_id"],
-                app_secret=channel_cfg["app_secret"],
-                chat_id=channel_cfg["chat_id"],
-            )
-            sent = await notifier.send_media_items(downloaded_items, config_name=config_name)
-            with Session(engine) as session:
-                for item in downloaded_items:
-                    for r in session.exec(
-                        select(DownloadRecord).where(DownloadRecord.aweme_id == item["aweme_id"])
-                    ).all():
-                        r.sent = True
-                session.commit()
+        if channel_cfg and downloaded_items:
+            if channel_cfg.get("channel_type", "feishu_bot") == "feishu_bot" and channel_cfg.get("app_id") and channel_cfg.get("chat_id"):
+                notifier = FeishuNotifier(
+                    app_id=channel_cfg["app_id"],
+                    app_secret=channel_cfg["app_secret"],
+                    chat_id=channel_cfg["chat_id"],
+                )
+                sent = await notifier.send_media_items(downloaded_items, config_name=config_name)
+            if sent > 0:
+                with Session(engine) as session:
+                    for item in downloaded_items:
+                        for r in session.exec(
+                            select(DownloadRecord).where(DownloadRecord.aweme_id == item["aweme_id"])
+                        ).all():
+                            r.sent = True
+                    session.commit()
             # 推送成功后才写入 SeenRecord，避免推送失败导致内容永久丢失
             if sent > 0:
                 with Session(engine) as session:
@@ -329,8 +344,8 @@ async def run_task(config_id: int, engine=None) -> int:
                 task.note = "无新内容（全部为历史重复）"
             elif len(new_items) > 0 and len(downloaded_items) == 0:
                 task.note = f"新内容 {len(new_items)} 条，下载全部失败"
-            elif channel_cfg and not channel_cfg.get("app_id"):
-                task.note = "未配置通知渠道 app_id，跳过推送"
+            elif channel_cfg and not _channel_cfg_is_valid(channel_cfg):
+                task.note = "未配置通知渠道必要参数，跳过推送"
             session.add(task)
             session.commit()
 
