@@ -48,7 +48,13 @@ HTTPS_PROXY=http://127.0.0.1:7890 uv run python -m backend.main
 
 ### 搜索实现（`backend/crawler/search.py`）
 
-`DouyinSearcher.search_keyword()` 在独立线程的新 event loop 里运行 Playwright，不阻塞 uvicorn 主 loop。拦截 `general/search/single` 和 `general/search/stream` 两种接口，支持 chunked 响应格式解析。话题搜索（`search_hashtag`）使用 HTTP API 直接请求，不走 Playwright。
+`DouyinSearcher` 有三种搜索方法，均在独立线程的新 event loop 里运行 Playwright，不阻塞 uvicorn 主 loop：
+
+- `search_keyword()`：关键词搜索，拦截 `general/search/single` 和 `general/search/stream` 两种接口，支持 chunked 响应格式解析
+- `search_user_profile(sec_uid, tab)`：用户主页采集，`tab="post"` 拦截 `/aweme/v1/web/aweme/post/`，`tab="favorite"` 拦截 `/aweme/v1/web/aweme/favorite/`（`www-hj.douyin.com` 域名）
+- `resolve_sec_uid(douyin_id)`：通过抖音号搜索用户，拦截 `discover/search?aweme_user_web` 接口解析 sec_uid
+
+headless 无结果时本地环境自动切换有头浏览器重试（用户可处理验证码）。
 
 ### Cron 调度（`backend/scheduler.py`）
 
@@ -75,3 +81,14 @@ React 18 + TypeScript + TailwindCSS v4 + Vite。路由为页面级组件（`src/
 ### 签名服务（遗留）
 
 `backend/crawler/sign_server.py` 是早期独立 HTTP 签名服务（端口 18690），当前主流程已改为 Playwright 直接拦截，不再依赖此服务。代码保留供参考，`.pids/sign_server.pid` 为其进程 PID 文件。
+
+### 用户主页采集（`search_type=user`）
+
+`SearchConfig.query` 存储 JSON 数组，格式：
+```json
+[{"sec_uid": "MS4w...", "limit": 10, "nickname": "备注名", "tab": "post", "id_type": "sec_uid"}]
+```
+- `id_type`：`"sec_uid"`（主页链接或 sec_uid）或 `"douyin_id"`（抖音号，运行时自动解析为 sec_uid）
+- `tab`：`"post"`（作品）或 `"favorite"`（收藏）
+- 兼容直接填 sec_uid 字符串（非 JSON）的旧格式
+- `task.note` 字段展示每个用户的采集摘要，含错误详情（如抖音号未找到）
