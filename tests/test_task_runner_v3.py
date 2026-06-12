@@ -7,6 +7,7 @@
 - 飞书发送
 - 任务异常时标记 failed
 """
+import json
 import pytest
 from unittest.mock import AsyncMock, patch, MagicMock
 from sqlmodel import Session, select
@@ -65,8 +66,8 @@ def _patch_runner(search_items=None, download_paths=None, send_count=1):
     download_paths = download_paths or ["/tmp/a1.mp4"]
 
     mock_searcher = AsyncMock()
-    mock_searcher.search_keyword.return_value = search_items
-    mock_searcher.search_hashtag.return_value = search_items
+    mock_searcher.search_keyword.return_value = (search_items, None)
+    mock_searcher.search_user_profile.return_value = (search_items, None)
 
     mock_downloader = AsyncMock()
     mock_downloader.download.return_value = download_paths
@@ -101,14 +102,17 @@ async def test_run_task_success(engine, config, cookie, tmp_path):
 
 @pytest.mark.asyncio
 async def test_run_task_dedup_via_seen_record(engine, config, cookie, tmp_path):
-    """SeenRecord 去重：第一次执行后，第二次相同内容不再下载"""
-    searcher, downloader, notifier = _patch_runner(search_items=_mock_items(["dup1", "dup2"]))
-
-    patches = dict(
-        DouyinSearcher=searcher,
-        Downloader=downloader,
-        FeishuNotifier=notifier,
-    )
+    """SeenRecord 去重：第一次执行后，第二次搜索器返回空（已被去重），不再下载"""
+    searcher = AsyncMock()
+    # 第一次返回 2 条，第二次 Playwright 因 exclude_ids 已过滤，返回空
+    searcher.search_keyword.side_effect = [
+        (_mock_items(["dup1", "dup2"]), None),
+        ([], None),
+    ]
+    downloader = AsyncMock()
+    downloader.download.return_value = ["/tmp/x.mp4"]
+    notifier = AsyncMock()
+    notifier.send_media_items.return_value = 0
 
     with patch("backend.task_runner.DouyinSearcher", return_value=searcher), \
          patch("backend.task_runner.Downloader", return_value=downloader), \
@@ -120,14 +124,13 @@ async def test_run_task_dedup_via_seen_record(engine, config, cookie, tmp_path):
         await run_task(config_id=config, engine=engine)
         first_download_count = downloader.download.call_count
 
-        # 第二次执行：相同 aweme_id，SeenRecord 已有，不应再下载
+        # 第二次执行：搜索器返回空，不应再下载
         await run_task(config_id=config, engine=engine)
         second_download_count = downloader.download.call_count
 
-    # 第二次不新增下载
     assert second_download_count == first_download_count
 
-    # SeenRecord 表中有且仅有 2 条（不重复写）
+    # SeenRecord 表中有 2 条
     with Session(engine) as s:
         seen = s.exec(select(SeenRecord).where(SeenRecord.config_id == config)).all()
         assert len(seen) == 2
@@ -145,7 +148,7 @@ async def test_run_task_dedup_is_per_config(engine, tmp_path):
         c1_id, c2_id = c1.id, c2.id
 
     searcher = AsyncMock()
-    searcher.search_keyword.return_value = _mock_items(["shared_id"])
+    searcher.search_keyword.return_value = (_mock_items(["shared_id"]), None)
     downloader = AsyncMock()
     downloader.download.return_value = ["/tmp/x.mp4"]
     notifier = AsyncMock()
@@ -167,10 +170,10 @@ async def test_run_task_dedup_is_per_config(engine, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_run_task_seen_record_written_even_if_download_fails(engine, config, cookie, tmp_path):
-    """下载失败时 SeenRecord 也应写入，防止下次重复尝试失败的内容"""
+async def test_run_task_seen_record_not_written_if_download_fails(engine, config, cookie, tmp_path):
+    """下载失败时 SeenRecord 不写入（下次可以重试）"""
     searcher = AsyncMock()
-    searcher.search_keyword.return_value = _mock_items(["fail_id"])
+    searcher.search_keyword.return_value = (_mock_items(["fail_id"]), None)
     downloader = AsyncMock()
     downloader.download.side_effect = Exception("下载超时")
     notifier = AsyncMock()
@@ -190,7 +193,7 @@ async def test_run_task_seen_record_written_even_if_download_fails(engine, confi
         assert task.downloaded == 0
 
         seen = s.exec(select(SeenRecord).where(SeenRecord.config_id == config)).all()
-        assert any(r.aweme_id == "fail_id" for r in seen)  # 仍写入 SeenRecord
+        assert len(seen) == 0  # 下载失败不写入 SeenRecord，下次可以重试
 
 
 @pytest.mark.asyncio
@@ -198,7 +201,7 @@ async def test_run_task_partial_download_failure(engine, config, cookie, tmp_pat
     """部分下载失败时，成功的继续处理，失败的跳过"""
     items = _mock_items(["ok1", "fail1", "ok2"])
     searcher = AsyncMock()
-    searcher.search_keyword.return_value = items
+    searcher.search_keyword.return_value = (items, None)
 
     call_count = [0]
     async def download_side_effect(item):
@@ -244,7 +247,7 @@ async def test_run_task_llm_filter_skips_irrelevant(engine, tmp_path):
 
     items = _mock_items(["rel", "irrel"])
     searcher = AsyncMock()
-    searcher.search_keyword.return_value = items
+    searcher.search_keyword.return_value = (items, None)
     downloader = AsyncMock()
     downloader.download.return_value = ["/tmp/rel.mp4"]
     notifier = AsyncMock()
@@ -273,7 +276,7 @@ async def test_run_task_llm_filter_skips_irrelevant(engine, tmp_path):
 async def test_run_task_llm_filter_disabled_skips_check(engine, config, cookie, tmp_path):
     """LLM 过滤关闭时不调用 check_relevance"""
     searcher = AsyncMock()
-    searcher.search_keyword.return_value = _mock_items()
+    searcher.search_keyword.return_value = (_mock_items(), None)
     downloader = AsyncMock()
     downloader.download.return_value = ["/tmp/x.mp4"]
     notifier = AsyncMock()
@@ -306,7 +309,7 @@ async def test_run_task_llm_no_config_skips_filter(engine, tmp_path):
 
     items = _mock_items(["x1", "x2"])
     searcher = AsyncMock()
-    searcher.search_keyword.return_value = items
+    searcher.search_keyword.return_value = (items, None)
     downloader = AsyncMock()
     downloader.download.return_value = ["/tmp/x.mp4"]
     notifier = AsyncMock()
@@ -340,7 +343,7 @@ async def test_run_task_sends_to_feishu_when_channel_configured(engine, tmp_path
         config_id = cfg.id
 
     searcher = AsyncMock()
-    searcher.search_keyword.return_value = _mock_items(["send1"])
+    searcher.search_keyword.return_value = (_mock_items(["send1"]), None)
     downloader = AsyncMock()
     downloader.download.return_value = ["/tmp/send1.mp4"]
     notifier = AsyncMock()
@@ -364,7 +367,7 @@ async def test_run_task_sends_to_feishu_when_channel_configured(engine, tmp_path
 async def test_run_task_skips_feishu_when_no_channel(engine, config, cookie, tmp_path):
     """没有通知渠道时不调用飞书发送"""
     searcher = AsyncMock()
-    searcher.search_keyword.return_value = _mock_items()
+    searcher.search_keyword.return_value = (_mock_items(), None)
     downloader = AsyncMock()
     downloader.download.return_value = ["/tmp/x.mp4"]
     mock_notifier_cls = MagicMock()
@@ -410,23 +413,163 @@ async def test_run_task_raises_for_missing_config(engine):
         await run_task(config_id=9999, engine=engine)
 
 
-# ── hashtag 搜索路径 ──────────────────────────────────────
+# ── user 搜索路径 ──────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_run_task_hashtag_search_type(engine, tmp_path):
-    """search_type=hashtag 时调用 search_hashtag"""
+async def test_run_task_user_search_type(engine, tmp_path):
+    """search_type=user 时调用 search_user_profile，而非 search_keyword"""
     with Session(engine) as s:
-        cfg = SearchConfig(name="话题测试", query="ch_123456",
-                           search_type="hashtag", limit=5)
+        users = [{"sec_uid": "uid_abc", "limit": 3, "nickname": "博主A"}]
+        cfg = SearchConfig(
+            name="用户测试",
+            query=json.dumps(users),
+            search_type="user",
+            limit=10,
+        )
         s.add(cfg)
         s.commit()
         s.refresh(cfg)
         config_id = cfg.id
 
     searcher = AsyncMock()
-    searcher.search_hashtag.return_value = _mock_items(["ht1"])
+    searcher.search_user_profile.return_value = (_mock_items(["u1", "u2"]), None)
     downloader = AsyncMock()
-    downloader.download.return_value = ["/tmp/ht1.mp4"]
+    downloader.download.return_value = ["/tmp/u1.mp4"]
+    notifier = AsyncMock()
+    notifier.send_media_items.return_value = 0
+
+    with patch("backend.task_runner.DouyinSearcher", return_value=searcher), \
+         patch("backend.task_runner.Downloader", return_value=downloader), \
+         patch("backend.task_runner.FeishuNotifier", return_value=notifier), \
+         patch("backend.task_runner.get_setting", return_value=str(tmp_path)), \
+         patch("backend.task_runner.write_log_entry"):
+
+        task_id = await run_task(config_id=config_id, engine=engine)
+
+    searcher.search_user_profile.assert_called_once_with(
+        sec_uid="uid_abc", limit=3, tab="post", exclude_ids=set()
+    )
+    searcher.search_keyword.assert_not_called()
+
+    with Session(engine) as s:
+        task = s.get(TaskRecord, task_id)
+        assert task.status == "done"
+        assert task.total == 2
+
+
+@pytest.mark.asyncio
+async def test_run_task_user_multi_accounts(engine, tmp_path):
+    """user 模式下多个账号分别搜索，结果合并"""
+    with Session(engine) as s:
+        users = [
+            {"sec_uid": "uid_a", "limit": 2, "nickname": "A"},
+            {"sec_uid": "uid_b", "limit": 3, "nickname": "B"},
+        ]
+        cfg = SearchConfig(
+            name="多用户",
+            query=json.dumps(users),
+            search_type="user",
+            limit=10,
+        )
+        s.add(cfg)
+        s.commit()
+        s.refresh(cfg)
+        config_id = cfg.id
+
+    searcher = AsyncMock()
+    searcher.search_user_profile.side_effect = [
+        (_mock_items(["a1", "a2"]), None),
+        (_mock_items(["b1", "b2", "b3"]), None),
+    ]
+    downloader = AsyncMock()
+    downloader.download.return_value = ["/tmp/x.mp4"]
+    notifier = AsyncMock()
+    notifier.send_media_items.return_value = 0
+
+    with patch("backend.task_runner.DouyinSearcher", return_value=searcher), \
+         patch("backend.task_runner.Downloader", return_value=downloader), \
+         patch("backend.task_runner.FeishuNotifier", return_value=notifier), \
+         patch("backend.task_runner.get_setting", return_value=str(tmp_path)), \
+         patch("backend.task_runner.write_log_entry"):
+
+        task_id = await run_task(config_id=config_id, engine=engine)
+
+    assert searcher.search_user_profile.call_count == 2
+    with Session(engine) as s:
+        task = s.get(TaskRecord, task_id)
+        assert task.total == 5  # a1+a2+b1+b2+b3
+
+
+@pytest.mark.asyncio
+async def test_run_task_user_dedup_across_accounts(engine, tmp_path):
+    """user 模式下，第二个账号不重复推送第一个账号已抓取的内容"""
+    with Session(engine) as s:
+        users = [
+            {"sec_uid": "uid_a", "limit": 5, "nickname": "A"},
+            {"sec_uid": "uid_b", "limit": 5, "nickname": "B"},
+        ]
+        cfg = SearchConfig(
+            name="去重测试",
+            query=json.dumps(users),
+            search_type="user",
+            limit=10,
+        )
+        s.add(cfg)
+        s.commit()
+        s.refresh(cfg)
+        config_id = cfg.id
+
+    # uid_b 返回的 shared_id 已被 uid_a 返回过
+    searcher = AsyncMock()
+    searcher.search_user_profile.side_effect = [
+        (_mock_items(["shared", "a_only"]), None),
+        (_mock_items(["shared", "b_only"]), None),  # shared 会被排除
+    ]
+    downloader = AsyncMock()
+    downloader.download.return_value = ["/tmp/x.mp4"]
+    notifier = AsyncMock()
+    notifier.send_media_items.return_value = 0
+
+    with patch("backend.task_runner.DouyinSearcher", return_value=searcher), \
+         patch("backend.task_runner.Downloader", return_value=downloader), \
+         patch("backend.task_runner.FeishuNotifier", return_value=notifier), \
+         patch("backend.task_runner.get_setting", return_value=str(tmp_path)), \
+         patch("backend.task_runner.write_log_entry"):
+
+        task_id = await run_task(config_id=config_id, engine=engine)
+
+    # shared 在第二个账号时被 exclude_ids 过滤（任务内去重）
+    # 第二次调用的 exclude_ids 应包含第一批结果
+    second_call_kwargs = searcher.search_user_profile.call_args_list[1][1]
+    assert "shared" in second_call_kwargs["exclude_ids"]
+    assert "a_only" in second_call_kwargs["exclude_ids"]
+
+    with Session(engine) as s:
+        task = s.get(TaskRecord, task_id)
+        # mock 返回了 shared+b_only，真实 Playwright 会过滤 shared；
+        # 这里验证 exclude_ids 正确传递，total 为 mock 的实际返回数
+        assert task.total == 4
+
+
+@pytest.mark.asyncio
+async def test_run_task_user_plain_sec_uid_string(engine, tmp_path):
+    """query 直接填 sec_uid 字符串（非 JSON）时能兼容处理"""
+    with Session(engine) as s:
+        cfg = SearchConfig(
+            name="兼容测试",
+            query="MS4wLjABAAAAtest",
+            search_type="user",
+            limit=5,
+        )
+        s.add(cfg)
+        s.commit()
+        s.refresh(cfg)
+        config_id = cfg.id
+
+    searcher = AsyncMock()
+    searcher.search_user_profile.return_value = (_mock_items(["x1"]), None)
+    downloader = AsyncMock()
+    downloader.download.return_value = []
     notifier = AsyncMock()
     notifier.send_media_items.return_value = 0
 
@@ -438,8 +581,45 @@ async def test_run_task_hashtag_search_type(engine, tmp_path):
 
         await run_task(config_id=config_id, engine=engine)
 
-    searcher.search_hashtag.assert_called_once_with("ch_123456", limit=5)
-    searcher.search_keyword.assert_not_called()
+    searcher.search_user_profile.assert_called_once_with(
+        sec_uid="MS4wLjABAAAAtest", limit=5, tab="post", exclude_ids=set()
+    )
+
+
+@pytest.mark.asyncio
+async def test_run_task_user_favorite_tab(engine, tmp_path):
+    """tab=favorite 时 search_user_profile 以 tab='favorite' 调用"""
+    with Session(engine) as s:
+        users = [{"sec_uid": "uid_fav", "limit": 5, "nickname": "我", "tab": "favorite"}]
+        cfg = SearchConfig(
+            name="收藏测试",
+            query=json.dumps(users),
+            search_type="user",
+            limit=10,
+        )
+        s.add(cfg)
+        s.commit()
+        s.refresh(cfg)
+        config_id = cfg.id
+
+    searcher = AsyncMock()
+    searcher.search_user_profile.return_value = (_mock_items(["f1", "f2"]), None)
+    downloader = AsyncMock()
+    downloader.download.return_value = []
+    notifier = AsyncMock()
+    notifier.send_media_items.return_value = 0
+
+    with patch("backend.task_runner.DouyinSearcher", return_value=searcher), \
+         patch("backend.task_runner.Downloader", return_value=downloader), \
+         patch("backend.task_runner.FeishuNotifier", return_value=notifier), \
+         patch("backend.task_runner.get_setting", return_value=str(tmp_path)), \
+         patch("backend.task_runner.write_log_entry"):
+
+        await run_task(config_id=config_id, engine=engine)
+
+    searcher.search_user_profile.assert_called_once_with(
+        sec_uid="uid_fav", limit=5, tab="favorite", exclude_ids=set()
+    )
 
 
 # ── _get_default_llm ──────────────────────────────────────

@@ -61,7 +61,7 @@ export default function Configs() {
         <h2 className="text-2xl font-extrabold" style={{ color: 'var(--text-primary)' }}>搜索配置</h2>
         <button className="btn-primary" onClick={() => setShowForm(true)}>＋ 新建配置</button>
       </div>
-      <p className="text-sm text-slate-400 mb-6">管理关键词 / 话题采集任务，支持定时自动执行</p>
+      <p className="text-sm text-slate-400 mb-6">管理关键词采集任务，支持定时自动执行</p>
 
       {/* 卡片列表 */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
@@ -95,7 +95,7 @@ export default function Configs() {
                     {togglingIds.has(c.id) ? '切换中...' : (c.enabled ? '已启用' : '已停用')}
                   </button>
                   <span className="text-xs px-2 py-0.5 rounded-full font-semibold bg-purple-100 text-purple-700">
-                    {c.search_type === 'search' ? '关键词' : '# 话题'}
+                    {c.search_type === 'user' ? '👤 用户主页' : '关键词'}
                   </span>
                   {c.llm_filter_enabled && (
                     <span className="text-xs px-2 py-0.5 rounded-full font-semibold bg-blue-100 text-blue-600">🤖 LLM过滤</span>
@@ -104,13 +104,30 @@ export default function Configs() {
               </div>
             </div>
             <div className="flex flex-wrap gap-2 mb-3">
-              {[
-                `🔍 ${c.query}`,
-                `📅 ${c.publish_time === 0 ? '不限' : c.publish_time === 1 ? '天内' : c.publish_time === 7 ? '周内' : '半年内'}`,
-                `🎯 ${c.limit} 条`,
-              ].map(label => (
-                <span key={label} className="text-xs text-slate-500 bg-white/60 px-2.5 py-1 rounded-lg border border-purple-50">{label}</span>
-              ))}
+              {(() => {
+                let queryLabel = c.query
+                let limitLabel = `🎯 ${c.limit} 条`
+                if (c.search_type === 'user') {
+                  try {
+                    const entries = JSON.parse(c.query)
+                    if (Array.isArray(entries)) {
+                      queryLabel = entries
+                        .map((e: { nickname?: string; sec_uid?: string }) => e.nickname || (e.sec_uid ? e.sec_uid.slice(0, 8) + '...' : ''))
+                        .filter(Boolean)
+                        .join('、') || c.query
+                      const total = entries.reduce((sum: number, e: { limit?: number }) => sum + (e.limit ?? 10), 0)
+                      limitLabel = `🎯 ${total} 条`
+                    }
+                  } catch {}
+                }
+                return [
+                  `🔍 ${queryLabel}`,
+                  `📅 ${c.publish_time === 0 ? '不限' : c.publish_time === 1 ? '天内' : c.publish_time === 7 ? '周内' : '半年内'}`,
+                  limitLabel,
+                ].map(label => (
+                  <span key={label} className="text-xs text-slate-500 bg-white/60 px-2.5 py-1 rounded-lg border border-purple-50">{label}</span>
+                ))
+              })()}
             </div>
             <div className={`text-xs rounded-lg px-3 py-1.5 font-mono mb-3 flex items-center gap-2 ${c.enabled ? 'text-indigo-500 bg-indigo-50/60' : 'text-gray-400 bg-gray-50/60 opacity-60'}`}>
               <span>{c.cron}</span>

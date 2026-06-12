@@ -1,4 +1,5 @@
 # backend/task_runner.py
+import json
 import logging
 import os
 import httpx
@@ -143,9 +144,68 @@ async def run_task(config_id: int, engine=None) -> int:
                 ).all()
             )
 
-        if config_search_type == "hashtag":
-            items, nil_reason = await searcher.search_hashtag(config_query, limit=config_limit)
-            new_items = [it for it in items if it["aweme_id"] not in existing_ids]
+        nil_reason: str | None = None
+        user_notes: list[str] = []
+
+        if config_search_type == "user":
+            # query 存储多用户 JSON：[{"sec_uid": "...", "limit": 20, "nickname": "..."}, ...]
+            # 兼容直接填 sec_uid 字符串的情况
+            try:
+                user_entries = json.loads(config_query)
+                if isinstance(user_entries, str):
+                    user_entries = [{"sec_uid": user_entries, "limit": config_limit}]
+            except (json.JSONDecodeError, TypeError):
+                user_entries = [{"sec_uid": config_query, "limit": config_limit}]
+
+            nil_reasons = []
+            user_notes = []  # 记录每个用户的采集摘要（含错误）
+            for entry in user_entries:
+                sec_uid = entry.get("sec_uid", "").strip()
+                per_limit = int(entry.get("limit", config_limit))
+                tab = entry.get("tab", "post")
+                id_type = entry.get("id_type", "sec_uid")  # "sec_uid" 或 "douyin_id"
+                display_name = entry.get("nickname") or sec_uid[:12]
+                if not sec_uid:
+                    continue
+                # 支持粘贴完整主页链接，自动提取 sec_uid
+                if sec_uid.startswith("http"):
+                    from urllib.parse import urlparse
+                    parsed_path = urlparse(sec_uid).path.rstrip("/").split("/")
+                    # 取最后一段，过滤掉空字符串和 'user' 字面量
+                    candidate = parsed_path[-1] if parsed_path else ""
+                    if not candidate or candidate == "user":
+                        msg = f"{display_name}：主页链接无法解析出 sec_uid（URL 格式不正确）"
+                        nil_reasons.append(msg)
+                        user_notes.append(f"✗ {msg}")
+                        continue
+                    sec_uid = candidate
+                # 抖音号模式：先通过搜索解析出 sec_uid（与 URL 模式互斥）
+                elif id_type == "douyin_id":
+                    resolved = await searcher.resolve_sec_uid(sec_uid)
+                    if not resolved:
+                        msg = f"{display_name}：抖音号未找到对应用户"
+                        nil_reasons.append(msg)
+                        user_notes.append(f"✗ {msg}")
+                        continue
+                    sec_uid = resolved
+                user_exclude = existing_ids | {it["aweme_id"] for it in new_items}
+                items, reason = await searcher.search_user_profile(
+                    sec_uid=sec_uid,
+                    limit=per_limit,
+                    tab=tab,
+                    exclude_ids=user_exclude,
+                )
+                new_items.extend(items)
+                if reason:
+                    msg = f"{display_name}：{reason}"
+                    nil_reasons.append(msg)
+                    user_notes.append(f"✗ {msg}")
+                elif items:
+                    user_notes.append(f"✓ {display_name}：获取 {len(items)} 条")
+                else:
+                    user_notes.append(f"- {display_name}：无新内容")
+            if nil_reasons and not new_items:
+                nil_reason = "；".join(nil_reasons)
         else:
             # 将历史 id 传入，搜索器内部持续翻页直到凑够 limit 条新内容
             new_items, nil_reason = await searcher.search_keyword(
@@ -157,7 +217,6 @@ async def run_task(config_id: int, engine=None) -> int:
                 filter_duration=config_filter_duration,
                 exclude_ids=existing_ids,
             )
-            items = new_items  # 此时 items 即为去重后的新内容
 
         # LLM 相关性过滤
         if config_llm_filter_enabled:
@@ -263,6 +322,9 @@ async def run_task(config_id: int, engine=None) -> int:
             task.finished_at = _utcnow()
             if nil_reason:
                 task.note = f"搜索无结果：{nil_reason}"
+            elif config_search_type == "user" and user_notes:
+                # user 模式：汇总每个用户的采集结果，含错误详情
+                task.note = "；".join(user_notes)
             elif len(new_items) == 0:
                 task.note = "无新内容（全部为历史重复）"
             elif len(new_items) > 0 and len(downloaded_items) == 0:
