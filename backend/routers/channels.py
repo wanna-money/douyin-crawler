@@ -74,10 +74,10 @@ async def test_channel(channel_id: int, session: Session = Depends(get_session))
     if not ch.app_id or not ch.app_secret or not ch.chat_id:
         return {"ok": False, "error": "app_id / app_secret / chat_id 未填写"}
     try:
-        from backend.notify.feishu import get_tenant_token, send_message
+        from backend.notify.feishu import get_tenant_token, _send
         import json
         token = await get_tenant_token(ch.app_id, ch.app_secret)
-        ok = await send_message(
+        ok = await _send(
             token, ch.chat_id, "text",
             json.dumps({"text": "[抖音采集] 通知渠道连通测试 ✅"})
         )

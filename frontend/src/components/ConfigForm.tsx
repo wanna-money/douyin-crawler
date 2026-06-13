@@ -39,9 +39,9 @@ function SectionTitle({ icon, title }: { icon: string; title: string }) {
 function parseUserEntries(query: string): UserEntry[] {
   try {
     const parsed = JSON.parse(query)
-    if (Array.isArray(parsed)) return parsed.map(e => ({ tab: 'post' as const, id_type: 'sec_uid' as const, ...e }))
+    if (Array.isArray(parsed)) return parsed.map(e => ({ tab: 'post' as const, id_type: 'douyin_id' as const, ...e }))
   } catch {}
-  return [{ sec_uid: query, limit: 10, nickname: '', tab: 'post' as const, id_type: 'sec_uid' as const }]
+  return [{ sec_uid: query, limit: 10, nickname: '', tab: 'post' as const, id_type: 'douyin_id' as const }]
 }
 
 function serializeUserEntries(entries: UserEntry[]): string {
@@ -53,7 +53,7 @@ export default function ConfigForm({ initial, onSaved, onCancel }: Props) {
   const [saving, setSaving] = useState(false)
   const [channels, setChannels] = useState<NotifyChannel[]>([])
   const [userEntries, setUserEntries] = useState<UserEntry[]>(() =>
-    initial?.search_type === 'user' ? parseUserEntries(initial.query) : [{ sec_uid: '', limit: 10, nickname: '', tab: 'post' as const, id_type: 'sec_uid' as const }]
+    initial?.search_type === 'user' ? parseUserEntries(initial.query) : [{ sec_uid: '', limit: 10, nickname: '', tab: 'post' as const, id_type: 'douyin_id' as const }]
   )
 
   useEffect(() => { channelsApi.list().then(setChannels) }, [])
@@ -62,7 +62,7 @@ export default function ConfigForm({ initial, onSaved, onCancel }: Props) {
 
   const handleSearchTypeChange = (newType: string) => {
     if (newType === 'user') {
-      setUserEntries([{ sec_uid: '', limit: 10, nickname: '', tab: 'post' as const, id_type: 'sec_uid' as const }])
+      setUserEntries([{ sec_uid: '', limit: 10, nickname: '', tab: 'post' as const, id_type: 'douyin_id' as const }])
       setForm(f => ({ ...f, search_type: newType, query: '[]' }))
     } else {
       setForm(f => ({ ...f, search_type: newType, query: '' }))
@@ -76,14 +76,14 @@ export default function ConfigForm({ initial, onSaved, onCancel }: Props) {
   }
 
   const addUserEntry = () => {
-    const updated = [...userEntries, { sec_uid: '', limit: 10, nickname: '', tab: 'post' as const, id_type: 'sec_uid' as const }]
+    const updated = [...userEntries, { sec_uid: '', limit: 10, nickname: '', tab: 'post' as const, id_type: 'douyin_id' as const }]
     setUserEntries(updated)
     setForm(f => ({ ...f, query: serializeUserEntries(updated) }))
   }
 
   const removeUserEntry = (idx: number) => {
     const filtered = userEntries.filter((_, i) => i !== idx)
-    const next = filtered.length ? filtered : [{ sec_uid: '', limit: 10, nickname: '', tab: 'post' as const, id_type: 'sec_uid' as const }]
+    const next = filtered.length ? filtered : [{ sec_uid: '', limit: 10, nickname: '', tab: 'post' as const, id_type: 'douyin_id' as const }]
     setUserEntries(next)
     setForm(f => ({ ...f, query: serializeUserEntries(next) }))
   }
@@ -225,7 +225,7 @@ export default function ConfigForm({ initial, onSaved, onCancel }: Props) {
               <option value={2}>图文</option>
             </select>
           </label>
-          <label className="block col-span-2">
+          <label className="block">
             <span className={labelCls}>采集数量上限</span>
             <input type="number" value={form.limit} onChange={e => set('limit', Number(e.target.value))}
               min={1} max={500} className={inputCls} />

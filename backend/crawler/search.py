@@ -288,8 +288,7 @@ async def _playwright_search(
                 if len(new_results) >= limit or not has_more:
                     break
                 prev_count = len(new_results)
-                await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                # 等待新内容加载，最多 6 秒
+                await page.evaluate("window.scrollTo(0, (document.body || document.documentElement).scrollHeight)")
                 for _ in range(12):
                     await asyncio.sleep(0.5)
                     if len(new_results) > prev_count:
@@ -465,7 +464,7 @@ async def _playwright_user_profile(
                 if len(new_results) >= limit:
                     break
                 prev_count = len(new_results)
-                await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                await page.evaluate("window.scrollTo(0, (document.body || document.documentElement).scrollHeight)")
                 for _ in range(12):
                     await asyncio.sleep(0.5)
                     if len(new_results) > prev_count:

@@ -4,7 +4,6 @@ import json
 import logging
 import os
 import time
-from typing import Optional
 import httpx
 
 logger = logging.getLogger(__name__)
@@ -61,7 +60,7 @@ async def get_tenant_token(app_id: str, app_secret: str) -> str:
     return token
 
 
-async def upload_image(token: str, file_path: str) -> Optional[str]:
+async def upload_image(token: str, file_path: str) -> str | None:
     if not os.path.exists(file_path):
         return None
     try:
@@ -84,7 +83,7 @@ async def upload_image(token: str, file_path: str) -> Optional[str]:
         return None
 
 
-def _build_card(item: dict, config_name: str, image_key: Optional[str]) -> dict:
+def _build_card(item: dict, config_name: str, image_keys: list[str]) -> dict:
     """用 SDK CardBuilder 构建卡片，格式完全符合 Schema 2.0 规范。"""
     from lark_oapi.channel.card.builder import new_card
 
@@ -101,9 +100,9 @@ def _build_card(item: dict, config_name: str, image_key: Optional[str]) -> dict:
         .header(title=f"{type_label} · {config_name}", template=header_color)
     )
 
-    # 封面图
-    if image_key:
-        builder.image(image_key, alt=desc[:30] or author)
+    # 图片：图集展示所有图（最多9张），视频只展示封面
+    for key in image_keys[:9]:
+        builder.image(key, alt=desc[:30] or author)
 
     # 作者 + 描述
     builder.markdown(f"**{author}**")
@@ -192,24 +191,25 @@ class FeishuBotNotifier:
                 media_type = item.get("media_type", "")
                 file_paths = item.get("file_paths", [])
 
-                # 获取封面 image_key
-                image_key: Optional[str] = None
+                image_keys: list[str] = []
                 if media_type == "image":
-                    # 图集：用下载好的第一张图
-                    for path in file_paths:
+                    # 图集：上传所有图片，最多9张
+                    for path in file_paths[:9]:
                         if os.path.exists(path) and path.endswith((".jpg", ".jpeg", ".png", ".webp")):
-                            image_key = await upload_image(token, path)
-                            if image_key:
-                                break
+                            key = await upload_image(token, path)
+                            if key:
+                                image_keys.append(key)
                             await asyncio.sleep(0.2)
                 elif media_type == "video":
                     # 视频：用下载时保存的封面图
                     cover_path = item.get("cover_path")
                     if cover_path and os.path.exists(cover_path):
-                        image_key = await upload_image(token, cover_path)
+                        key = await upload_image(token, cover_path)
+                        if key:
+                            image_keys.append(key)
 
-                # 发卡片（封面 + 作者 + 描述 + 跳转按钮）
-                card = _build_card(item, config_name, image_key)
+                # 发卡片（图片组 + 作者 + 描述 + 跳转按钮）
+                card = _build_card(item, config_name, image_keys)
                 await _send(token, self.chat_id, "interactive", json.dumps(card))
 
                 sent += 1
