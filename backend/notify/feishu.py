@@ -193,8 +193,13 @@ class FeishuBotNotifier:
 
                 image_keys: list[str] = []
                 if media_type == "image":
-                    # 图集：上传所有图片，最多9张
-                    for path in file_paths[:9]:
+                    # 图集：只上传 LLM 通过的图片（无过滤时上传全部，最多9张）
+                    passed_indices = item.get("llm_passed_image_indices")
+                    if passed_indices is not None:
+                        selected_paths = [file_paths[i] for i in passed_indices if i < len(file_paths)]
+                    else:
+                        selected_paths = file_paths
+                    for path in selected_paths[:9]:
                         if os.path.exists(path) and path.endswith((".jpg", ".jpeg", ".png", ".webp")):
                             key = await upload_image(token, path)
                             if key:

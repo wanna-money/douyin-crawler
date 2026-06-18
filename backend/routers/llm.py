@@ -72,10 +72,13 @@ async def test_llm_config(llm_id: int, session: Session = Depends(get_session)):
     if not cfg:
         raise HTTPException(status_code=404, detail="Not found")
     try:
+        headers = {"Content-Type": "application/json"}
+        if cfg.api_key:
+            headers["Authorization"] = f"Bearer {cfg.api_key}"
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.post(
                 f"{cfg.base_url.rstrip('/')}/chat/completions",
-                headers={"Authorization": f"Bearer {cfg.api_key}"},
+                headers=headers,
                 json={
                     "model": cfg.model,
                     "messages": [{"role": "user", "content": "回复数字1"}],
@@ -84,7 +87,13 @@ async def test_llm_config(llm_id: int, session: Session = Depends(get_session)):
                 },
             )
             resp.raise_for_status()
-            answer = resp.json()["choices"][0]["message"]["content"]
+            body = resp.json()
+            if "choices" not in body:
+                error_msg = body.get("error", {})
+                if isinstance(error_msg, dict):
+                    error_msg = error_msg.get("message", str(body))
+                return {"ok": False, "error": str(error_msg) or str(body)}
+            answer = body["choices"][0]["message"]["content"]
         return {"ok": True, "response": answer}
     except Exception as e:
         return {"ok": False, "error": str(e)}

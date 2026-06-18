@@ -46,7 +46,6 @@ class LLMConfig(SQLModel, table=True):
     base_url: str
     api_key: str = ""
     model: str = "gpt-4o-mini"
-    prompt_template: str = _DEFAULT_PROMPT
     is_default: bool = False
     created_at: datetime = Field(default_factory=_utcnow)
 
@@ -66,6 +65,7 @@ class SearchConfig(SQLModel, table=True):
     feishu_webhook: str = ""
     channel_id: Optional[int] = Field(default=None, foreign_key="notifychannel.id")
     llm_filter_enabled: bool = False
+    llm_prompt_template: str = Field(default=_DEFAULT_PROMPT)
     created_at: datetime = Field(default_factory=_utcnow)
     updated_at: datetime = Field(default_factory=_utcnow)
 

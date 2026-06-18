@@ -17,6 +17,7 @@ export interface SearchConfig {
   feishu_webhook: string
   channel_id: number | null
   llm_filter_enabled: boolean
+  llm_prompt_template: string
   created_at: string
 }
 
@@ -63,6 +64,12 @@ export interface NotifyChannel {
   created_at: string
 }
 
+export interface MediaDetail {
+  url: string
+  llm_filtered: boolean
+  llm_curl: string
+}
+
 export interface LogEntry {
   ts: string
   task_id: number
@@ -76,6 +83,9 @@ export interface LogEntry {
   downloaded: boolean
   file_paths: string[]
   sent: boolean
+  llm_filtered: boolean | undefined
+  llm_curl: string | undefined
+  media_details: MediaDetail[] | undefined
   error: string | null
 }
 
@@ -130,6 +140,8 @@ export const logsApi = {
   byTask: (taskId: number) => api.get<LogEntry[]>(`/logs/task/${taskId}`).then(r => r.data),
   deleteDate: (date: string) => api.delete(`/logs?date=${date}`).then(r => r.data),
   clearAll: () => api.delete('/logs/all').then(r => r.data),
+  resend: (taskId: number, awemeIds: string[]) =>
+    api.post<{ ok: boolean; sent: number; total: number }>('/logs/resend', { task_id: taskId, aweme_ids: awemeIds }).then(r => r.data),
 }
 
 export interface LLMConfig {
@@ -138,7 +150,6 @@ export interface LLMConfig {
   base_url: string
   api_key: string
   model: string
-  prompt_template: string
   is_default: boolean
   created_at: string
 }

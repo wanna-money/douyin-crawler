@@ -18,6 +18,7 @@ const defaults: FormData = {
   filter_duration: '', limit: 50, enabled: true,
   cron: '0 9 * * *', feishu_webhook: '', channel_id: null,
   llm_filter_enabled: false,
+  llm_prompt_template: '判断以下抖音视频内容是否与搜索关键词相关。\n只回答"是"或"否"，不要解释。\n\n搜索关键词：{keyword}\n视频描述：{desc}\n作者：{author}\n\n是否相关：',
 }
 
 interface Props {
@@ -266,6 +267,20 @@ export default function ConfigForm({ initial, onSaved, onCancel }: Props) {
             <span className="ml-1.5 text-xs text-slate-400">（需先在「LLM 配置」页设置默认模型）</span>
           </span>
         </label>
+        {form.llm_filter_enabled && (
+          <div className="ml-6 mt-1">
+            <label className="block text-xs font-semibold text-slate-500 mb-1">
+              Prompt 模板
+              <span className="ml-2 font-normal text-slate-400">变量：{'{keyword}'} {'{desc}'} {'{author}'}</span>
+            </label>
+            <textarea
+              value={form.llm_prompt_template}
+              rows={5}
+              onChange={e => set('llm_prompt_template', e.target.value)}
+              className="w-full border border-purple-100 rounded-xl px-3 py-2 text-xs font-mono bg-white/70 focus:outline-none focus:border-indigo-400"
+            />
+          </div>
+        )}
       </div>
 
       {/* 操作按钮 */}

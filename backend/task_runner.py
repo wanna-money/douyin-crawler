@@ -106,7 +106,6 @@ def _get_default_llm(engine) -> dict | None:
                 "base_url": cfg.base_url,
                 "api_key": cfg.api_key,
                 "model": cfg.model,
-                "prompt_template": cfg.prompt_template,
             }
         return None
 
@@ -136,6 +135,7 @@ async def run_task(config_id: int, engine=None) -> int:
         config_feishu_webhook = config.feishu_webhook
         config_channel_id = config.channel_id
         config_llm_filter_enabled = config.llm_filter_enabled
+        config_llm_prompt_template = config.llm_prompt_template
 
     try:
         new_items: list = []
@@ -231,25 +231,94 @@ async def run_task(config_id: int, engine=None) -> int:
             )
 
         # LLM 相关性过滤
+        new_items_before_llm: list = []
         if config_llm_filter_enabled:
+            new_items_before_llm = new_items
             llm_cfg = _get_default_llm(engine)
             if llm_cfg:
                 filtered = []
                 for item in new_items:
-                    relevant = await check_relevance(
-                        keyword=config_query,
-                        desc=item.get("desc", ""),
-                        author=item.get("author", ""),
-                        cover_url=item.get("cover_url", ""),
-                        **llm_cfg,
-                    )
-                    if relevant:
-                        filtered.append(item)
+                    media_type = item.get("media_type", "")
+                    image_urls = item.get("image_urls", [])
+                    cover_url = item.get("cover_url", "")
+
+                    if media_type == "image" and image_urls:
+                        # 图文：每张图单独判断，有一张通过就推送，只推通过的图
+                        media_details = []
+                        passed_indices = []
+                        for idx, img_url in enumerate(image_urls):
+                            relevant, llm_curl = await check_relevance(
+                                keyword=config_query,
+                                desc=item.get("desc", ""),
+                                author=item.get("author", ""),
+                                cover_url=img_url,
+                                prompt_template=config_llm_prompt_template,
+                                **llm_cfg,
+                            )
+                            media_details.append({
+                                "url": img_url,
+                                "llm_filtered": not relevant,
+                                "llm_curl": llm_curl,
+                            })
+                            if relevant:
+                                passed_indices.append(idx)
+                        item["media_details"] = media_details
+                        if passed_indices:
+                            # 只保留通过的图片
+                            item["llm_passed_image_indices"] = passed_indices
+                            filtered.append(item)
+                        else:
+                            logger.info("LLM 过滤: aweme_id=%s 所有图片不相关，跳过", item.get("aweme_id"))
+                            item["llm_filtered"] = True
                     else:
-                        logger.info("LLM 过滤: aweme_id=%s 不相关，跳过", item.get("aweme_id"))
+                        # 视频：用封面图判断一次
+                        relevant, llm_curl = await check_relevance(
+                            keyword=config_query,
+                            desc=item.get("desc", ""),
+                            author=item.get("author", ""),
+                            cover_url=cover_url,
+                            prompt_template=config_llm_prompt_template,
+                            **llm_cfg,
+                        )
+                        item["media_details"] = [{
+                            "url": cover_url or item.get("video_url", ""),
+                            "llm_filtered": not relevant,
+                            "llm_curl": llm_curl,
+                        }]
+                        item["llm_curl"] = llm_curl
+                        if relevant:
+                            filtered.append(item)
+                        else:
+                            logger.info("LLM 过滤: aweme_id=%s 不相关，跳过", item.get("aweme_id"))
+                            item["llm_filtered"] = True
                 new_items = filtered
             else:
                 logger.warning("llm_filter_enabled=True 但未配置 LLM，跳过过滤")
+
+        # 写入被 LLM 过滤掉的内容日志（llm_filtered=True）
+        for item in [it for it in (new_items_before_llm if config_llm_filter_enabled else []) if it.get("llm_filtered")]:
+            try:
+                write_log_entry({
+                    "ts": _utcnow().isoformat(),
+                    "task_id": task_id,
+                    "config_name": config_name,
+                    "aweme_id": item.get("aweme_id", ""),
+                    "media_type": item.get("media_type", ""),
+                    "author": item.get("author", ""),
+                    "desc": item.get("desc", "")[:200],
+                    "video_url": item.get("video_url"),
+                    "cover_url": item.get("cover_url"),
+                    "image_urls": item.get("image_urls", []),
+                    "downloaded": False,
+                    "file_paths": [],
+                    "sent": False,
+                    "llm_filtered": True,
+                    "llm_curl": item.get("llm_curl", ""),
+                    "media_details": item.get("media_details", []),
+                    "error": None,
+                }, base_dir=download_dir)
+            except Exception as log_exc:
+                logger.warning("LLM 过滤日志写入失败 aweme_id=%s: %s", item.get("aweme_id"), log_exc)
 
         downloaded_items = []
         for item in new_items:
@@ -286,6 +355,9 @@ async def run_task(config_id: int, engine=None) -> int:
                     "downloaded": error_msg is None,
                     "file_paths": item.get("file_paths", []),
                     "sent": False,
+                    "llm_filtered": False,
+                    "llm_curl": item.get("llm_curl", ""),
+                    "media_details": item.get("media_details", []),
                     "error": error_msg,
                 }, base_dir=download_dir)
             except Exception as log_exc:

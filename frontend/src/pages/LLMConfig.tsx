@@ -1,18 +1,8 @@
 import { useEffect, useState } from 'react'
 import { type LLMConfig, llmApi } from '../api/client'
 
-const DEFAULT_PROMPT = `判断以下抖音视频内容是否与搜索关键词相关。
-只回答"是"或"否"，不要解释。
-
-搜索关键词：{keyword}
-视频描述：{desc}
-作者：{author}
-
-是否相关：`
-
 const defaults = {
-  name: '', base_url: '', api_key: '', model: 'gpt-4o-mini',
-  prompt_template: DEFAULT_PROMPT, is_default: false,
+  name: '', base_url: '', api_key: '', model: 'gpt-4o-mini', is_default: false,
 }
 
 export default function LLMConfigPage() {
@@ -31,7 +21,7 @@ export default function LLMConfigPage() {
   const openEdit = (c: LLMConfig) => {
     setForm({
       name: c.name, base_url: c.base_url, api_key: c.api_key,
-      model: c.model, prompt_template: c.prompt_template, is_default: c.is_default,
+      model: c.model, is_default: c.is_default,
     })
     setEditing(c); setShowForm(true)
   }
@@ -100,13 +90,6 @@ export default function LLMConfigPage() {
                 <div>
                   <label className="block text-sm font-semibold text-slate-600 mb-1">API Key</label>
                   <input value={form.api_key} type="password" onChange={e => setForm(f => ({ ...f, api_key: e.target.value }))} className={inputCls} placeholder="sk-..." />
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-slate-600 mb-1">
-                    Prompt 模板
-                    <span className="ml-2 text-xs font-normal text-slate-400">变量：{'{keyword}'} {'{desc}'} {'{author}'}</span>
-                  </label>
-                  <textarea value={form.prompt_template} rows={7} onChange={e => setForm(f => ({ ...f, prompt_template: e.target.value }))} className={inputCls + ' font-mono text-xs'} />
                 </div>
                 <div className="flex items-center gap-2">
                   <input type="checkbox" id="llm_is_default" checked={form.is_default} onChange={e => setForm(f => ({ ...f, is_default: e.target.checked }))} className="w-4 h-4 accent-indigo-500" />

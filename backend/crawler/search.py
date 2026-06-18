@@ -143,6 +143,10 @@ async def _playwright_search(
     cookie: str,
     limit: int,
     exclude_ids: set[str],
+    sort_type: int = 0,
+    publish_time: int = 0,
+    content_type: int = 0,
+    filter_duration: str = "",
     headless: bool = True,
 ) -> tuple[list[dict], str | None]:
     """
@@ -268,8 +272,21 @@ async def _playwright_search(
             await page.goto("https://www.douyin.com/", wait_until="domcontentloaded", timeout=15000)
             await asyncio.sleep(1)
             logger.info("[搜索诊断] 主页加载完成，当前 URL: %s", page.url)
+            # 构造搜索 URL，有过滤条件时加 filter_selected 参数
+            search_url = f"https://www.douyin.com/search/{quote(keyword)}?type=general"
+            has_filter = sort_type != 0 or publish_time != 0 or content_type != 0 or filter_duration
+            if has_filter:
+                import json as _json_mod
+                filter_obj = {
+                    "sort_type": str(sort_type),
+                    "publish_time": str(publish_time),
+                    "content_type": str(content_type),
+                }
+                if filter_duration:
+                    filter_obj["filter_duration"] = filter_duration
+                search_url += "&is_filter_search=1&filter_selected=" + quote(_json_mod.dumps(filter_obj, separators=(",", ":")))
             await page.goto(
-                f"https://www.douyin.com/search/{quote(keyword)}?type=general",
+                search_url,
                 wait_until="domcontentloaded",
                 timeout=15000,
             )
@@ -494,10 +511,25 @@ async def _playwright_user_profile(
     return new_results[:limit], nil_reason
 
 
-def _playwright_search_sync(keyword: str, cookie: str, limit: int, exclude_ids: set[str]) -> tuple[list[dict], str | None]:
+def _playwright_search_sync(
+    keyword: str,
+    cookie: str,
+    limit: int,
+    exclude_ids: set[str],
+    sort_type: int = 0,
+    publish_time: int = 0,
+    content_type: int = 0,
+    filter_duration: str = "",
+) -> tuple[list[dict], str | None]:
     loop = asyncio.new_event_loop()
     try:
-        return loop.run_until_complete(_playwright_search(keyword, cookie, limit, exclude_ids))
+        return loop.run_until_complete(_playwright_search(
+            keyword, cookie, limit, exclude_ids,
+            sort_type=sort_type,
+            publish_time=publish_time,
+            content_type=content_type,
+            filter_duration=filter_duration,
+        ))
     finally:
         loop.close()
 
@@ -545,6 +577,10 @@ class DouyinSearcher:
                 self.client.cookie,
                 limit,
                 exclude_ids or set(),
+                sort_type,
+                publish_time,
+                content_type,
+                filter_duration,
             )
         return result
 

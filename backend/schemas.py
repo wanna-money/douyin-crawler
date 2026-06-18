@@ -25,6 +25,7 @@ class SearchConfigCreate(BaseModel):
     feishu_webhook: str = ""
     channel_id: Optional[int] = None
     llm_filter_enabled: bool = False
+    llm_prompt_template: str = _DEFAULT_PROMPT
 
 
 class SearchConfigUpdate(BaseModel):
@@ -41,6 +42,7 @@ class SearchConfigUpdate(BaseModel):
     feishu_webhook: Optional[str] = None
     channel_id: Optional[int] = None
     llm_filter_enabled: Optional[bool] = None
+    llm_prompt_template: Optional[str] = None
 
 
 class CookieAccountCreate(BaseModel):
@@ -80,7 +82,6 @@ class LLMConfigCreate(BaseModel):
     base_url: str
     api_key: str = ""
     model: str = "gpt-4o-mini"
-    prompt_template: str = _DEFAULT_PROMPT
     is_default: bool = False
 
 
@@ -89,7 +90,6 @@ class LLMConfigUpdate(BaseModel):
     base_url: Optional[str] = None
     api_key: Optional[str] = None
     model: Optional[str] = None
-    prompt_template: Optional[str] = None
     is_default: Optional[bool] = None
 
 

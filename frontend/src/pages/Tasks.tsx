@@ -12,66 +12,202 @@ const STATUS_MAP: Record<string, { label: string; cls: string; dot: string }> = 
   failed:  { label: '失败',   cls: 'bg-red-100 text-red-600',         dot: '✕' },
 }
 
-function LogTable({ logs, loading }: { logs: LogEntry[]; loading: boolean }) {
+function LogTable({ logs, loading, taskId }: { logs: LogEntry[]; loading: boolean; taskId: number }) {
   const [typeFilter, setTypeFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [resending, setResending] = useState(false)
+  const [confirm, setConfirm] = useState<string[] | null>(null)
+  const [resendError, setResendError] = useState<string | null>(null)
 
   const filtered = logs.filter(e =>
     (!typeFilter || e.media_type === typeFilter) &&
-    (!statusFilter || (statusFilter === 'ok' ? e.downloaded : !e.downloaded))
+    (!statusFilter ||
+      (statusFilter === 'ok' ? e.downloaded :
+       statusFilter === 'fail' ? (!e.downloaded && !e.llm_filtered) :
+       statusFilter === 'llm' ? !!e.llm_filtered : true))
   )
+
+  const toggleSelect = (id: string) => setSelected(s => {
+    const n = new Set(s)
+    n.has(id) ? n.delete(id) : n.add(id)
+    return n
+  })
+  const toggleAll = () => {
+    if (selected.size === filtered.length) setSelected(new Set())
+    else setSelected(new Set(filtered.map(e => e.aweme_id)))
+  }
+
+  const openConfirm = (ids: string[]) => { if (ids.length) { setResendError(null); setConfirm(ids) } }
+
+  const doResend = async () => {
+    if (!confirm?.length) return
+    setResending(true)
+    setResendError(null)
+    try {
+      const res = await logsApi.resend(taskId, confirm)
+      toast.success(`已推送 ${res.sent} / ${res.total} 条`)
+      setSelected(new Set())
+      setConfirm(null)
+    } catch (e: any) {
+      const msg = e?.response?.data?.detail ?? e?.message ?? '推送失败，请检查推送渠道配置'
+      setResendError(typeof msg === 'string' ? msg : JSON.stringify(msg))
+    } finally {
+      setResending(false)
+    }
+  }
 
   if (loading) return <div className="py-8 text-center text-xs text-slate-400">加载中...</div>
   if (logs.length === 0) return <div className="py-8 text-center text-xs text-slate-400">本次任务暂无采集记录</div>
 
   return (
     <div>
+      {/* 确认弹窗 */}
+      {confirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={() => setConfirm(null)} />
+          <div className="relative bg-white rounded-2xl shadow-2xl p-6 w-80">
+            <h3 className="text-base font-bold text-slate-700 mb-2">确认重新推送</h3>
+            <p className="text-sm text-slate-500 mb-4">
+              将推送 <strong className="text-indigo-600">{confirm.length}</strong> 条内容，不再经过 LLM 过滤。
+            </p>
+            {resendError && (
+              <div className="mb-4 px-3 py-2 rounded-lg bg-red-50 border border-red-100 text-xs text-red-500 break-words">
+                {resendError}
+              </div>
+            )}
+            <div className="flex gap-3 justify-end">
+              <button onClick={() => setConfirm(null)} className="px-4 py-2 text-sm border border-purple-100 rounded-xl text-slate-500">取消</button>
+              <button onClick={doResend} disabled={resending} className="btn-primary">
+                {resending ? '推送中...' : resendError ? '重试' : '确认推送'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 过滤栏 */}
-      <div className="flex items-center gap-2 px-4 py-2 border-b border-purple-50">
+      <div className="flex items-center gap-2 px-4 py-2 border-b border-purple-50 flex-wrap">
+        <input type="checkbox" checked={filtered.length > 0 && selected.size === filtered.length}
+          onChange={toggleAll} className="w-3.5 h-3.5 accent-indigo-500 shrink-0" />
         <span className="text-xs text-slate-400">{filtered.length} / {logs.length} 条</span>
-        <select
-          value={typeFilter}
-          onChange={e => setTypeFilter(e.target.value)}
-          className="text-xs border border-purple-100 rounded-lg px-2 py-1 bg-white/70 focus:outline-none"
-        >
+        <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)}
+          className="text-xs border border-purple-100 rounded-lg px-2 py-1 bg-white/70 focus:outline-none">
           <option value="">全部类型</option>
           <option value="video">视频</option>
           <option value="image">图文</option>
         </select>
-        <select
-          value={statusFilter}
-          onChange={e => setStatusFilter(e.target.value)}
-          className="text-xs border border-purple-100 rounded-lg px-2 py-1 bg-white/70 focus:outline-none"
-        >
+        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
+          className="text-xs border border-purple-100 rounded-lg px-2 py-1 bg-white/70 focus:outline-none">
           <option value="">全部状态</option>
           <option value="ok">下载成功</option>
           <option value="fail">下载失败</option>
+          <option value="llm">LLM 过滤</option>
         </select>
+        {selected.size > 0 && (
+          <button onClick={() => openConfirm([...selected])}
+            className="ml-auto text-xs px-3 py-1 rounded-lg bg-indigo-50 text-indigo-600 border border-indigo-100 hover:bg-indigo-100 transition-colors">
+            重新推送 ({selected.size})
+          </button>
+        )}
       </div>
+
       {/* 日志行 */}
       <div className="divide-y divide-purple-50 overflow-hidden">
         {filtered.length === 0 ? (
           <div className="py-6 text-center text-xs text-slate-400">无匹配记录</div>
         ) : filtered.map((e, i) => (
-          <div key={i} className="flex items-center gap-3 px-4 py-2.5 text-xs hover:bg-white/40 transition-colors min-w-0">
-            <span className="text-slate-300 font-mono shrink-0 w-[72px]">{new Date(e.ts).toLocaleTimeString('zh-CN')}</span>
-            <span className={`shrink-0 px-1.5 py-0.5 rounded text-[11px] font-semibold ${e.media_type === 'video' ? 'bg-blue-50 text-blue-600' : 'bg-pink-50 text-pink-500'}`}>
-              {e.media_type === 'video' ? '视频' : '图文'}
-            </span>
-            <span className="text-indigo-500 shrink-0 font-medium w-20 truncate">{e.author}</span>
-            <span className="text-slate-600 min-w-0 flex-1 truncate" title={e.desc}>{e.desc || '（无描述）'}</span>
-            <div className="flex items-center gap-2 shrink-0">
-              {e.downloaded
-                ? <span className="text-emerald-500 font-semibold">✓ 已下载</span>
-                : <span className="text-red-400">✗ 失败</span>}
-              {e.sent && <span className="text-indigo-400">· 已推送</span>}
-            </div>
-            {e.error && (
-              <span className="text-red-400 truncate max-w-[140px] shrink-0" title={e.error}>{e.error}</span>
-            )}
-          </div>
+          <LogRow key={i} entry={e} selected={selected} onSelect={toggleSelect} onResend={openConfirm} />
         ))}
       </div>
+    </div>
+  )
+}
+
+function LLMTag({ filtered, curl }: { filtered: boolean; curl?: string }) {
+  return (
+    <span className="flex items-center gap-1 shrink-0">
+      <span className={`px-1.5 py-0.5 rounded text-[11px] font-semibold ${filtered ? 'bg-amber-50 text-amber-500' : 'bg-emerald-50 text-emerald-600'}`}>
+        {filtered ? '⊘ 已过滤' : '✓ LLM通过'}
+      </span>
+      {curl && (
+        <button
+          onClick={() => { navigator.clipboard.writeText(curl); toast.success('curl 已复制') }}
+          className="text-[10px] px-1.5 py-0.5 rounded border border-slate-100 text-slate-400 hover:text-indigo-500 hover:border-indigo-200 transition-colors"
+          title="复制 curl 命令"
+        >curl</button>
+      )}
+    </span>
+  )
+}
+
+function LogRow({ entry: e, selected, onSelect, onResend }: {
+  entry: LogEntry
+  selected: Set<string>
+  onSelect: (id: string) => void
+  onResend: (ids: string[]) => void
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const details = e.media_details
+  const passedCount = details ? details.filter(d => !d.llm_filtered).length : null
+
+  return (
+    <div>
+      <div className={`flex items-center gap-3 px-4 py-2.5 text-xs transition-colors min-w-0 ${selected.has(e.aweme_id) ? 'bg-indigo-50/40' : 'hover:bg-white/40'}`}>
+        <input type="checkbox" checked={selected.has(e.aweme_id)}
+          onChange={() => onSelect(e.aweme_id)}
+          className="w-3.5 h-3.5 accent-indigo-500 shrink-0" />
+        <span className="text-slate-300 font-mono shrink-0 w-[72px]">{new Date(e.ts).toLocaleTimeString('zh-CN')}</span>
+        <span className={`shrink-0 px-1.5 py-0.5 rounded text-[11px] font-semibold ${e.media_type === 'video' ? 'bg-blue-50 text-blue-600' : 'bg-pink-50 text-pink-500'}`}>
+          {e.media_type === 'video' ? '视频' : '图文'}
+        </span>
+        <span className="text-indigo-500 shrink-0 font-medium w-20 truncate">{e.author}</span>
+        <span className="text-slate-600 min-w-0 flex-1 truncate" title={e.desc}>{e.desc || '（无描述）'}</span>
+        {e.llm_filtered !== undefined && (
+          details && details.length > 1 ? (
+            <span className={`shrink-0 px-1.5 py-0.5 rounded text-[11px] font-semibold ${e.llm_filtered ? 'bg-amber-50 text-amber-500' : 'bg-emerald-50 text-emerald-600'}`}>
+              {e.llm_filtered ? '⊘ 全部过滤' : `✓ ${passedCount}/${details.length} 通过`}
+            </span>
+          ) : (
+            <LLMTag filtered={!!e.llm_filtered} curl={e.llm_curl} />
+          )
+        )}
+        <div className="flex items-center gap-2 shrink-0">
+          {!e.llm_filtered && (
+            e.downloaded
+              ? <span className="text-emerald-500 font-semibold">✓ 已下载</span>
+              : <span className="text-red-400">✗ 失败</span>
+          )}
+          {e.sent && <span className="text-indigo-400">· 已推送</span>}
+        </div>
+        {e.error && (
+          <span className="text-red-400 truncate max-w-[140px] shrink-0" title={e.error}>{e.error}</span>
+        )}
+        {details && details.length > 0 && (
+          <button onClick={() => setExpanded(v => !v)}
+            className="shrink-0 text-[10px] px-1.5 py-0.5 rounded border border-purple-100 text-slate-400 hover:text-indigo-500 hover:border-indigo-200 transition-colors">
+            {expanded ? '收起' : `明细(${details.length})`}
+          </button>
+        )}
+        <button onClick={() => onResend([e.aweme_id])}
+          className="shrink-0 text-xs px-2 py-0.5 rounded border border-purple-100 text-slate-400 hover:text-indigo-500 hover:border-indigo-200 transition-colors">
+          推送
+        </button>
+      </div>
+      {expanded && details && (
+        <div className="ml-10 mr-4 mb-2 rounded-lg border border-purple-50 overflow-hidden bg-white/60">
+          {details.map((d, idx) => (
+            <div key={idx} className="flex items-center gap-3 px-3 py-1.5 text-xs border-b border-purple-50 last:border-0 hover:bg-indigo-50/20">
+              <span className="text-slate-400 shrink-0 w-5 text-right">{idx + 1}</span>
+              <a href={d.url} target="_blank" rel="noreferrer"
+                className="text-indigo-400 hover:text-indigo-600 underline truncate flex-1 min-w-0" title={d.url}>
+                {d.url.length > 60 ? d.url.slice(0, 60) + '…' : d.url}
+              </a>
+              <LLMTag filtered={d.llm_filtered} curl={d.llm_curl} />
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -99,7 +235,7 @@ function DetailPanel({ task, onClose }: { task: TaskRecord; onClose: () => void 
             收起 ▲
           </button>
         </div>
-        <LogTable logs={logs} loading={loading} />
+        <LogTable logs={logs} loading={loading} taskId={task.id} />
       </div>
     </div>
   )

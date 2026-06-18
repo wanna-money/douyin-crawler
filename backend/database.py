@@ -37,6 +37,21 @@ def init_db(engine=None):
     if engine is None:
         engine = get_engine()
     SQLModel.metadata.create_all(engine)
+    _migrate(engine)
+
+
+def _migrate(engine):
+    """补充新增列，保持向前兼容。"""
+    from sqlalchemy import text
+    from backend.models import _DEFAULT_PROMPT
+    with engine.connect() as conn:
+        # searchconfig 新增 llm_prompt_template
+        cols = {row[1] for row in conn.execute(text("PRAGMA table_info(searchconfig)"))}
+        if "llm_prompt_template" not in cols:
+            conn.execute(text("ALTER TABLE searchconfig ADD COLUMN llm_prompt_template TEXT NOT NULL DEFAULT ''"))
+            conn.execute(text("UPDATE searchconfig SET llm_prompt_template = :p WHERE llm_prompt_template = ''"),
+                         {"p": _DEFAULT_PROMPT})
+            conn.commit()
 
 
 def get_session() -> Generator[Session, None, None]:
