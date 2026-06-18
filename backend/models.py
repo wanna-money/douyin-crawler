@@ -3,12 +3,12 @@ from typing import Optional
 from datetime import datetime, timezone, timedelta
 
 _DEFAULT_PROMPT = (
-    '判断以下抖音视频内容是否与搜索关键词相关。\n'
-    '只回答“是”或“否”，不要解释。\n\n'
+    '你是一个严格的内容分类器。请判断以下视频/图片内容是否与搜索关键词相关。\n\n'
     '搜索关键词：{keyword}\n'
-    '视频描述：{desc}\n'
-    '作者：{author}\n\n'
-    '是否相关：'
+    '【强力约束】\n'
+    '- 内容与关键词相关，直接回复：”是”\n'
+    '- 内容与关键词不相关，直接回复：”否”\n'
+    '- 禁止输出”是”或”否”之外的任何字符，包括空格、句号和解释。'
 )
 
 

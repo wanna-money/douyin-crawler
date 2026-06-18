@@ -402,7 +402,9 @@ async def run_task(config_id: int, engine=None) -> int:
         with Session(engine) as session:
             task = session.get(TaskRecord, task_id)
             task.status = "done"
-            task.total = len(new_items)
+            llm_filtered_count = len(new_items_before_llm) - len(new_items) if config_llm_filter_enabled else 0
+            items_before_filter = new_items_before_llm if config_llm_filter_enabled else new_items
+            task.total = len(items_before_filter)
             task.new_count = len(new_items)
             task.downloaded = len(downloaded_items)
             task.sent = sent
@@ -412,7 +414,11 @@ async def run_task(config_id: int, engine=None) -> int:
             elif config_search_type == "user" and user_notes:
                 # user 模式：汇总每个用户的采集结果，含错误详情
                 task.note = "；".join(user_notes)
-            elif len(new_items) == 0:
+            elif llm_filtered_count > 0 and len(new_items) == 0:
+                task.note = f"全部被 LLM 过滤（{llm_filtered_count} 条）"
+            elif llm_filtered_count > 0 and len(new_items) > 0:
+                task.note = f"LLM 过滤 {llm_filtered_count} 条，剩余 {len(new_items)} 条"
+            elif len(items_before_filter) == 0:
                 task.note = "无新内容（全部为历史重复）"
             elif len(new_items) > 0 and len(downloaded_items) == 0:
                 task.note = f"新内容 {len(new_items)} 条，下载全部失败"
@@ -427,8 +433,10 @@ async def run_task(config_id: int, engine=None) -> int:
                 task = session.get(TaskRecord, task_id)
                 if task:
                     task.status = "failed"
-                    task.total = len(new_items)
-                    task.new_count = task.total
+                    llm_filtered_count = len(new_items_before_llm) - len(new_items) if config_llm_filter_enabled else 0
+                    items_before_filter = new_items_before_llm if config_llm_filter_enabled else new_items
+                    task.total = len(items_before_filter)
+                    task.new_count = len(new_items)
                     task.downloaded = len(downloaded_items)
                     if isinstance(e, httpx.ConnectError):
                         task.error = f"网络连接失败（{type(e).__name__}）：{str(e) or '无法建立 TLS 连接，请检查网络或代理'}"

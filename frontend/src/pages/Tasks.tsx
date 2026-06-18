@@ -424,7 +424,7 @@ export default function Tasks() {
                           {/* 第二行：数量统计 */}
                           <div className="flex items-center gap-3 mb-2 text-xs text-slate-500">
                             <span>新内容 <strong className="text-slate-700">{t.total}</strong></span>
-                            <span>下载 <strong className={t.downloaded < t.total && t.total > 0 ? 'text-red-400' : 'text-slate-700'}>{t.downloaded}</strong></span>
+                            <span>下载 <strong className={t.downloaded < t.new_count && t.new_count > 0 ? 'text-red-400' : 'text-slate-700'}>{t.downloaded}</strong></span>
                             <span>推送 <strong className="text-slate-700">{t.sent}</strong></span>
                             <span className="ml-auto text-slate-400">{new Date(t.created_at).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
                           </div>
@@ -488,7 +488,7 @@ export default function Tasks() {
                             </td>
                             <td className="px-4 py-3 text-slate-600 tabular-nums whitespace-nowrap">{t.total}</td>
                             <td className="px-4 py-3 tabular-nums whitespace-nowrap">
-                              <span className={t.downloaded < t.total && t.total > 0 ? 'text-red-400' : 'text-slate-600'}>
+                              <span className={t.downloaded < t.new_count && t.new_count > 0 ? 'text-red-400' : 'text-slate-600'}>
                                 {t.downloaded}
                               </span>
                             </td>
