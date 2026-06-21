@@ -94,11 +94,15 @@ def _channel_cfg_is_valid(cfg: dict) -> bool:
     return bool(cfg.get("app_id") and cfg.get("chat_id"))
 
 
-def _get_default_llm(engine) -> dict | None:
+def _get_llm(llm_config_id: int | None, engine) -> dict | None:
     with Session(engine) as session:
-        cfg = session.exec(
-            select(LLMConfig).where(LLMConfig.is_default == True)
-        ).first()
+        cfg = None
+        if llm_config_id:
+            cfg = session.get(LLMConfig, llm_config_id)
+        if not cfg:
+            cfg = session.exec(
+                select(LLMConfig).where(LLMConfig.is_default == True)
+            ).first()
         if not cfg:
             cfg = session.exec(select(LLMConfig)).first()
         if cfg:
@@ -135,6 +139,7 @@ async def run_task(config_id: int, engine=None) -> int:
         config_feishu_webhook = config.feishu_webhook
         config_channel_id = config.channel_id
         config_llm_filter_enabled = config.llm_filter_enabled
+        config_llm_config_id = config.llm_config_id
         config_llm_prompt_template = config.llm_prompt_template
 
     try:
@@ -234,7 +239,7 @@ async def run_task(config_id: int, engine=None) -> int:
         new_items_before_llm: list = []
         if config_llm_filter_enabled:
             new_items_before_llm = new_items
-            llm_cfg = _get_default_llm(engine)
+            llm_cfg = _get_llm(config_llm_config_id, engine)
             if llm_cfg:
                 filtered = []
                 for item in new_items:

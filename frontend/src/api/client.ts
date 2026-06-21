@@ -17,6 +17,7 @@ export interface SearchConfig {
   feishu_webhook: string
   channel_id: number | null
   llm_filter_enabled: boolean
+  llm_config_id: number | null
   llm_prompt_template: string
   created_at: string
 }

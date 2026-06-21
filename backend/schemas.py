@@ -25,6 +25,7 @@ class SearchConfigCreate(BaseModel):
     feishu_webhook: str = ""
     channel_id: Optional[int] = None
     llm_filter_enabled: bool = False
+    llm_config_id: Optional[int] = None
     llm_prompt_template: str = _DEFAULT_PROMPT
 
 
@@ -42,6 +43,7 @@ class SearchConfigUpdate(BaseModel):
     feishu_webhook: Optional[str] = None
     channel_id: Optional[int] = None
     llm_filter_enabled: Optional[bool] = None
+    llm_config_id: Optional[int] = None
     llm_prompt_template: Optional[str] = None
 
 

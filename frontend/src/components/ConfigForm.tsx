@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { type SearchConfig, type NotifyChannel, configsApi, channelsApi } from '../api/client'
+import { type SearchConfig, type NotifyChannel, type LLMConfig, configsApi, channelsApi, llmApi } from '../api/client'
 import SchedulePicker from './SchedulePicker'
 
 type FormData = Omit<SearchConfig, 'id' | 'created_at'>
@@ -18,6 +18,7 @@ const defaults: FormData = {
   filter_duration: '', limit: 50, enabled: true,
   cron: '0 9 * * *', feishu_webhook: '', channel_id: null,
   llm_filter_enabled: false,
+  llm_config_id: null,
   llm_prompt_template: '判断以下抖音视频内容是否与搜索关键词相关。\n只回答"是"或"否"，不要解释。\n\n搜索关键词：{keyword}\n视频描述：{desc}\n作者：{author}\n\n是否相关：',
 }
 
@@ -53,11 +54,15 @@ export default function ConfigForm({ initial, onSaved, onCancel }: Props) {
   const [form, setForm] = useState<FormData>(initial ? { ...initial } : { ...defaults })
   const [saving, setSaving] = useState(false)
   const [channels, setChannels] = useState<NotifyChannel[]>([])
+  const [llmConfigs, setLlmConfigs] = useState<LLMConfig[]>([])
   const [userEntries, setUserEntries] = useState<UserEntry[]>(() =>
     initial?.search_type === 'user' ? parseUserEntries(initial.query) : [{ sec_uid: '', limit: 10, nickname: '', tab: 'post' as const, id_type: 'douyin_id' as const }]
   )
 
-  useEffect(() => { channelsApi.list().then(setChannels) }, [])
+  useEffect(() => {
+    channelsApi.list().then(setChannels)
+    llmApi.list().then(setLlmConfigs)
+  }, [])
 
   const set = (key: keyof FormData, val: unknown) => setForm(f => ({ ...f, [key]: val }))
 
@@ -264,21 +269,38 @@ export default function ConfigForm({ initial, onSaved, onCancel }: Props) {
             onChange={e => set('llm_filter_enabled', e.target.checked)} className="w-4 h-4 accent-indigo-500" />
           <span className="text-sm text-slate-600 group-hover:text-indigo-600 transition-colors">
             启用 LLM 相关性过滤
-            <span className="ml-1.5 text-xs text-slate-400">（需先在「LLM 配置」页设置默认模型）</span>
           </span>
         </label>
         {form.llm_filter_enabled && (
-          <div className="ml-6 mt-1">
-            <label className="block text-xs font-semibold text-slate-500 mb-1">
-              Prompt 模板
-              <span className="ml-2 font-normal text-slate-400">变量：{'{keyword}'} {'{desc}'} {'{author}'}</span>
-            </label>
-            <textarea
-              value={form.llm_prompt_template}
-              rows={5}
-              onChange={e => set('llm_prompt_template', e.target.value)}
-              className="w-full border border-purple-100 rounded-xl px-3 py-2 text-xs font-mono bg-white/70 focus:outline-none focus:border-indigo-400"
-            />
+          <div className="ml-6 space-y-2 mt-1">
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 mb-1">使用的 LLM 配置</label>
+              <select
+                value={form.llm_config_id ?? ''}
+                onChange={e => set('llm_config_id', e.target.value ? Number(e.target.value) : null)}
+                className={inputCls}
+              >
+                <option value="">— 使用默认配置 —</option>
+                {llmConfigs.map(c => (
+                  <option key={c.id} value={c.id}>{c.name} ({c.model}){c.is_default ? ' (默认)' : ''}</option>
+                ))}
+              </select>
+              {llmConfigs.length === 0 && (
+                <p className="text-xs text-amber-500 mt-1">暂无 LLM 配置，请先在「LLM 配置」页添加</p>
+              )}
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 mb-1">
+                Prompt 模板
+                <span className="ml-2 font-normal text-slate-400">变量：{'{keyword}'} {'{desc}'} {'{author}'}</span>
+              </label>
+              <textarea
+                value={form.llm_prompt_template}
+                rows={5}
+                onChange={e => set('llm_prompt_template', e.target.value)}
+                className="w-full border border-purple-100 rounded-xl px-3 py-2 text-xs font-mono bg-white/70 focus:outline-none focus:border-indigo-400"
+              />
+            </div>
           </div>
         )}
       </div>

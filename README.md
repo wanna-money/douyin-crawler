@@ -76,14 +76,17 @@ Cookie 中需包含以下关键字段才有效：`sessionid`、`uid_tt`、`msTok
 
 进入 **LLM 配置** → 新增配置，填写 OpenAI 兼容接口的 Base URL、API Key 和模型名，点「测试」验证，设为默认。
 
-支持任意 OpenAI 兼容接口，如 DeepSeek、阿里云 Qwen 等。视觉过滤需模型支持多模态（如 GPT-4o、Qwen-VL）。
+支持任意 OpenAI 兼容接口，如 DeepSeek、阿里云 Qwen、OpenAI、本地 LM Studio 等。视觉过滤需模型支持多模态（如 GPT-4o、Qwen-VL、MiniCPM-V 等）。
 
-开启 LLM 过滤后，在搜索配置的「高级选项」中可自定义 **Prompt 模板**，变量：`{keyword}`、`{desc}`、`{author}`。
+**每个搜索配置可单独指定使用哪个 LLM**（不指定则使用默认配置），方便不同任务使用不同模型。
+
+开启 LLM 过滤后，可自定义 **Prompt 模板**，变量：`{keyword}`、`{desc}`、`{author}`。
 
 **逐图过滤逻辑**：
 - 图文：对每张图片分别调用一次视觉模型，有一张通过即推送该帖，且**只推送通过的图片**
 - 视频：用封面图调用一次模型判断
-- 图片 URL 若不被接口支持（返回 400），自动下载后转 base64 重试
+- 图片按 OpenAI 标准格式传递（`image_url` + data URI 优先，回退到远程 URL）；任何格式失败直接放行，不降级为纯文字判断，不切换其他 LLM
+- 无图片时直接放行，不调用 LLM
 
 ### 6. 创建搜索配置
 
@@ -116,7 +119,7 @@ Cookie 中需包含以下关键字段才有效：`sessionid`、`uid_tt`、`msTok
 |------|------|
 | 定时 Cron | Cron 表达式，如 `0 9 * * mon-fri`（工作日 9 点） |
 | 通知渠道 | 绑定飞书群，留空则使用默认渠道 |
-| LLM 过滤 | 开启后用 AI 逐图判断内容相关性，可自定义 Prompt 模板 |
+| LLM 过滤 | 开启后用 AI 逐图判断内容相关性，可指定使用哪个 LLM 配置，可自定义 Prompt 模板 |
 
 点卡片上的 **▶ 立即执行**，切换到 **任务记录** 查看执行状态和采集明细。
 
@@ -207,4 +210,4 @@ douyin-crawler/
 - 本项目仅供个人学习和研究使用，请遵守抖音平台相关规定
 - Cookie 失效时任务会显示明确的诊断原因，重新运行 `get_cookie.py` 获取新 Cookie 即可
 - 飞书机器人需先在开放平台开启 `im:message` 权限并通过审核
-- LLM 视觉过滤需要模型支持多模态（如 GPT-4o、Qwen-VL、MiniCPM-V 等）；部分接口不支持 webp，会自动以 image/jpeg 格式重试
+- LLM 视觉过滤需要模型支持多模态（如 GPT-4o、Qwen-VL、MiniCPM-V 等）；图片以 OpenAI 标准格式传递，data URI 优先，回退到远程 URL；所有格式失败则默认放行

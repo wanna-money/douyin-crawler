@@ -65,6 +65,7 @@ class SearchConfig(SQLModel, table=True):
     feishu_webhook: str = ""
     channel_id: Optional[int] = Field(default=None, foreign_key="notifychannel.id")
     llm_filter_enabled: bool = False
+    llm_config_id: Optional[int] = Field(default=None, foreign_key="llmconfig.id")
     llm_prompt_template: str = Field(default=_DEFAULT_PROMPT)
     created_at: datetime = Field(default_factory=_utcnow)
     updated_at: datetime = Field(default_factory=_utcnow)

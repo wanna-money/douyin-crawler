@@ -14,44 +14,45 @@ def build_prompt(template: str, keyword: str, desc: str, author: str) -> str:
     )
 
 
-def _build_vision_messages(prompt: str, cover_url: str) -> list[dict]:
-    """构造多模态消息：文字 prompt + 封面图"""
+def _build_openai_datauri_messages(prompt: str, b64_data: str) -> list[dict]:
+    """OpenAI 标准格式：content 数组 + data URI"""
+    data_uri = f"data:image/jpeg;base64,{b64_data}"
     return [
         {
             "role": "user",
             "content": [
-                {
-                    "type": "text",
-                    "text": prompt,
-                },
-                {
-                    "type": "image_url",
-                    "image_url": {"url": cover_url},
-                },
+                {"type": "text", "text": prompt},
+                {"type": "image_url", "image_url": {"url": data_uri}},
+            ],
+        }
+    ]
+
+
+def _build_openai_url_messages(prompt: str, url: str) -> list[dict]:
+    """OpenAI 标准格式：content 数组 + 远程 URL（部分托管服务支持）"""
+    return [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": prompt},
+                {"type": "image_url", "image_url": {"url": url}},
             ],
         }
     ]
 
 
 async def _fetch_as_base64(url: str, timeout: int) -> str:
-    """下载图片并转为 data URI（base64 编码），强制使用 image/jpeg 以兼容不支持 webp 的接口"""
+    """下载图片，返回裸 base64 字符串（不含 data URI 前缀）"""
     async with httpx.AsyncClient(timeout=timeout) as client:
         resp = await client.get(url)
         resp.raise_for_status()
-        data = base64.b64encode(resp.content).decode()
-        return f"data:image/jpeg;base64,{data}"
-
-
-def _build_text_messages(prompt: str) -> list[dict]:
-    """构造纯文本消息（降级方案）"""
-    return [{"role": "user", "content": prompt}]
+        return base64.b64encode(resp.content).decode()
 
 
 def _is_yes(answer: str) -> bool:
     return "是" in answer or "yes" in answer.lower()
 
 
-# 各家 API 不支持视觉时的错误关键词
 _VISION_UNSUPPORTED_HINTS = (
     "does not support image",
     "does not support vision",
@@ -83,27 +84,26 @@ async def check_relevance(
     timeout: int = 20,
 ) -> tuple[bool, str]:
     """
-    判断内容是否与关键词相关。
-    返回 (是否相关, curl命令字符串)。
-    - 有封面图时：优先发封面图给多模态 LLM 判断（更准确）
-    - 无封面图时：降级为纯文字描述判断
-    - 网络异常或解析失败时默认返回 True（放行），避免误过滤
+    判断内容是否相关，返回 (是否相关, curl命令字符串)。
+
+    有图时按以下顺序尝试：
+      1. OpenAI content 数组 + data URI（优先）
+      2. OpenAI content 数组 + 远程 URL（托管 API 兜底）
+    任何格式失败或无图时直接放行，不降级文字判断，不切换其他 LLM。
     """
     last_curl: list[str] = []
 
     def _build_curl(messages: list) -> str:
         import json as _json
-        body = _json.dumps({
-            "model": model,
-            "messages": messages,
-            "max_tokens": 10,
-            "temperature": 0,
-        }, ensure_ascii=False)
+        body = _json.dumps(
+            {"model": model, "messages": messages, "max_tokens": 10, "temperature": 0},
+            ensure_ascii=False,
+        )
         auth = f' -H "Authorization: Bearer {api_key}"' if api_key else ""
         return (
             f'curl {base_url.rstrip("/")}/chat/completions'
             f' -H "Content-Type: application/json"'
-            f'{auth}'
+            f"{auth}"
             f" -d '{body}'"
         )
 
@@ -117,47 +117,46 @@ async def check_relevance(
             resp = await client.post(
                 f"{base_url.rstrip('/')}/chat/completions",
                 headers=headers,
-                json={
-                    "model": model,
-                    "messages": messages,
-                    "max_tokens": 10,
-                    "temperature": 0,
-                },
+                json={"model": model, "messages": messages, "max_tokens": 10, "temperature": 0},
             )
             resp.raise_for_status()
             answer = resp.json()["choices"][0]["message"]["content"].strip()
             result = _is_yes(answer)
-            logger.debug("LLM[%s] keyword=%s -> %s (%s)", mode, keyword, result, answer)
+            logger.debug("LLM[%s] -> %s (%s)", mode, result, answer)
             return result
 
     prompt = build_prompt(prompt_template, keyword=keyword, desc=desc, author=author)
 
-    # 有封面图时优先走 vision，失败则降级为文字
     if cover_url:
+        # 先下载图片，后续所有 vision 格式都需要 base64
         try:
-            result = await _call(_build_vision_messages(prompt, cover_url), "vision")
-            return result, last_curl[0] if last_curl else ""
+            b64_data = await _fetch_as_base64(cover_url, timeout)
         except Exception as exc:
-            exc_str = str(exc)
-            # 400 或含 base64 关键词：接口不接受 URL，转 base64 重试
-            is_400 = "400" in exc_str
-            if is_400 or "base64" in exc_str.lower():
-                try:
-                    data_uri = await _fetch_as_base64(cover_url, timeout)
-                    result = await _call(_build_vision_messages(prompt, data_uri), "vision-base64")
-                    return result, last_curl[0] if last_curl else ""
-                except Exception as exc2:
-                    logger.warning("LLM vision base64 重试失败，降级为文字判断: %s", exc2)
-            elif _is_vision_unsupported(exc_str):
-                # 模型不支持图片识别，无法做 vision 判断，直接放行避免误过滤
-                logger.warning("LLM 模型不支持图片识别，默认放行（建议更换支持视觉的模型）: %s", exc)
-                return True, last_curl[0] if last_curl else ""
-            else:
-                logger.warning("LLM vision 失败，降级为文字判断: %s", exc)
+            logger.warning("LLM 图片下载失败，默认放行: %s", exc)
+            return True, ""
 
-    try:
-        result = await _call(_build_text_messages(prompt), "text")
-        return result, last_curl[0] if last_curl else ""
-    except Exception as exc:
-        logger.warning("LLM 相关性检测失败，默认放行 [text]: %s", exc)
-        return True, last_curl[0] if last_curl else ""
+        if b64_data:
+            # 格式1：OpenAI content 数组 + data URI（优先，兼容 LM Studio / OpenAI 等）
+            try:
+                result = await _call(_build_openai_datauri_messages(prompt, b64_data), "vision-datauri")
+                return result, last_curl[0] if last_curl else ""
+            except Exception as exc:
+                if _is_vision_unsupported(str(exc)):
+                    logger.warning("LLM 不支持图片识别，默认放行: %s", exc)
+                    return True, last_curl[0] if last_curl else ""
+                logger.debug("LLM vision-datauri 失败，尝试 openai url: %s", exc)
+
+            # 格式2：OpenAI content 数组 + 远程 URL（托管 API，如 OpenAI / Claude）
+            try:
+                result = await _call(_build_openai_url_messages(prompt, cover_url), "vision-url")
+                return result, last_curl[0] if last_curl else ""
+            except Exception as exc:
+                if _is_vision_unsupported(str(exc)):
+                    logger.warning("LLM 不支持图片识别，默认放行: %s", exc)
+                    return True, last_curl[0] if last_curl else ""
+                logger.warning("LLM 所有 vision 格式均失败，默认放行: %s", exc)
+                return True, last_curl[0] if last_curl else ""
+
+    # 无图片时直接放行，不调用 LLM
+    logger.warning("LLM 无图片，默认放行")
+    return True, ""
